@@ -149,23 +149,232 @@ install_dependencies() {
   fi
 }
 
+# STEP 4: File Creation and Manipulation Functions
+
+# Function to create environment file
+create_env_file() {
+  print_status "$BLUE" "📄 Creating environment configuration file..."
+  
+  cat > .env.local << EOF
+# Convex Configuration
+CONVEX_DEPLOYMENT=
+NEXT_PUBLIC_CONVEX_URL=
+
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
+
+# Add your other environment variables here
+EOF
+
+  print_status "$GREEN" "  ✅ Environment file (.env.local) created"
+}
+
+# Function to create utility functions file
+create_utils_file() {
+  print_status "$BLUE" "🔧 Creating utility functions..."
+  
+  # Create lib directory if it doesn't exist
+  mkdir -p src/lib
+  
+  cat > src/lib/utils.ts << 'EOF'
+import { type ClassValue, clsx } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+/**
+ * Utility function to merge Tailwind CSS classes
+ * Combines clsx for conditional classes and tailwind-merge for deduplication
+ */
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+/**
+ * Format a date to a readable string
+ */
+export function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(date)
+}
+
+/**
+ * Capitalize the first letter of a string
+ */
+export function capitalize(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1)
+}
+
+/**
+ * Generate a random ID
+ */
+export function generateId(): string {
+  return Math.random().toString(36).substring(2, 15)
+}
+EOF
+
+  print_status "$GREEN" "  ✅ Utility functions (src/lib/utils.ts) created"
+}
+
+# Function to create Convex provider component
+create_convex_provider() {
+  print_status "$BLUE" "⚡ Creating Convex provider component..."
+  
+  cat > src/app/ConvexClientProvider.tsx << 'EOF'
+"use client";
+
+import { ReactNode } from "react";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
+
+const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+
+export default function ConvexClientProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return <ConvexProvider client={convex}>{children}</ConvexProvider>;
+}
+EOF
+
+  print_status "$GREEN" "  ✅ Convex provider component created"
+}
+
+# Function to create a basic UI components directory structure
+create_components_structure() {
+  print_status "$BLUE" "🎨 Creating components directory structure..."
+  
+  # Create components directories
+  mkdir -p src/components/ui
+  mkdir -p src/components/layout
+  
+  # Create a basic Button component
+  cat > src/components/ui/button.tsx << 'EOF'
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline:
+          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+        icon: "h-10 w-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, ...props }, ref) => {
+    return (
+      <button
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    )
+  }
+)
+Button.displayName = "Button"
+
+export { Button, buttonVariants }
+EOF
+
+  # Create a basic Header component
+  cat > src/components/layout/header.tsx << 'EOF'
+import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+import { Button } from '@/components/ui/button'
+
+export default function Header() {
+  return (
+    <header className="border-b">
+      <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+        <h1 className="text-2xl font-bold">My App</h1>
+        <div>
+          <SignedOut>
+            <SignInButton>
+              <Button>Sign In</Button>
+            </SignInButton>
+          </SignedOut>
+          <SignedIn>
+            <UserButton />
+          </SignedIn>
+        </div>
+      </div>
+    </header>
+  )
+}
+EOF
+
+  print_status "$GREEN" "  ✅ Components directory structure created"
+}
+
+# Function to create all configuration files
+create_config_files() {
+  print_status "$BLUE" "📁 Creating configuration files and components..."
+  
+  create_env_file
+  create_utils_file
+  create_convex_provider
+  create_components_structure
+  
+  print_status "$GREEN" "✅ All configuration files created successfully"
+}
+
 # Function to display final instructions
 show_final_instructions() {
   print_status "$GREEN" "🎉 Setup complete! Your Next.js app '$APP_NAME' is ready."
   print_status "$BLUE" ""
   print_status "$BLUE" "📋 Next steps:"
   print_status "$BLUE" "  1. cd $APP_NAME"
-  print_status "$BLUE" "  2. npm run dev"
+  print_status "$BLUE" "  2. Set up your environment variables in .env.local"
+  print_status "$BLUE" "  3. npm run dev"
   print_status "$BLUE" ""
   print_status "$BLUE" "🔗 Useful commands:"
   print_status "$BLUE" "  • Start development server: npm run dev"
   print_status "$BLUE" "  • Build for production: npm run build"
   print_status "$BLUE" "  • Run linting: npm run lint"
   print_status "$BLUE" ""
+  print_status "$BLUE" "📁 Files created:"
+  print_status "$BLUE" "  • .env.local - Environment variables"
+  print_status "$BLUE" "  • src/lib/utils.ts - Utility functions"
+  print_status "$BLUE" "  • src/app/ConvexClientProvider.tsx - Convex provider"
+  print_status "$BLUE" "  • src/components/ui/button.tsx - Button component"
+  print_status "$BLUE" "  • src/components/layout/header.tsx - Header component"
+  print_status "$BLUE" ""
 }
 
 # Main execution starts here
-print_status "$BLUE" "🚀 Next.js Starter Script v2.0"
+print_status "$BLUE" "🚀 Next.js Starter Script v2.1"
 print_status "$BLUE" "================================"
 
 # Check if user provided an app name
@@ -184,4 +393,5 @@ print_status "$GREEN" "✅ Creating app: $APP_NAME"
 check_network
 create_nextjs_app
 install_dependencies
+create_config_files
 show_final_instructions 
