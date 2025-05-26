@@ -350,48 +350,7 @@ create_config_files() {
   print_status "$GREEN" "✅ All configuration files created successfully"
 }
 
-# Function to display final instructions
-show_final_instructions() {
-  print_status "$GREEN" "🎉 Setup complete! Your Next.js app '$APP_NAME' is ready."
-  print_status "$BLUE" ""
-  print_status "$BLUE" "📋 Next steps:"
-  print_status "$BLUE" "  1. cd $APP_NAME"
-  print_status "$BLUE" "  2. Complete Convex setup: npx convex dev"
-  print_status "$BLUE" "  3. Copy deployment URLs to .env.local (see instructions in file)"
-  print_status "$BLUE" "  4. Set up Clerk authentication keys in .env.local"
-  print_status "$BLUE" "  5. npm run dev (or npm run dev:$APP_NAME)"
-  print_status "$BLUE" ""
-  print_status "$BLUE" "🔗 Useful commands:"
-  print_status "$BLUE" "  • Start development server: npm run dev:$APP_NAME"
-  print_status "$BLUE" "  • Build for production: npm run build:$APP_NAME"
-  print_status "$BLUE" "  • Setup Convex: npm run setup:convex"
-  print_status "$BLUE" "  • Deploy application: npm run deploy:$APP_NAME"
-  print_status "$BLUE" "  • Run linting: npm run lint"
-  print_status "$BLUE" ""
-  print_status "$BLUE" "📁 Files created with personalized content:"
-  print_status "$BLUE" "  • .env.local - Environment variables with setup instructions"
-  print_status "$BLUE" "  • src/app/layout.tsx - Root layout with '$APP_NAME' branding"
-  print_status "$BLUE" "  • src/app/page.tsx - Personalized home page"
-  print_status "$BLUE" "  • src/lib/utils.ts - Utility functions"
-  print_status "$BLUE" "  • src/app/ConvexClientProvider.tsx - Convex provider"
-  print_status "$BLUE" "  • src/components/ui/button.tsx - Button component"
-  print_status "$BLUE" "  • src/components/layout/header.tsx - Branded header component"
-  print_status "$BLUE" "  • package.json - Updated with custom scripts"
-  print_status "$BLUE" ""
-  print_status "$BLUE" "🗄️  Convex database files:"
-  print_status "$BLUE" "  • convex/schema.ts - Database schema with users, posts, comments"
-  print_status "$BLUE" "  • convex/users.ts - User management functions"
-  print_status "$BLUE" "  • convex/posts.ts - Post management functions"
-  print_status "$BLUE" "  • convex.json - Convex configuration"
-  print_status "$BLUE" ""
-  print_status "$BLUE" "✨ Features included:"
-  print_status "$BLUE" "  • Template substitution with app name branding"
-  print_status "$BLUE" "  • Complete Convex database setup with sample functions"
-  print_status "$BLUE" "  • Clerk authentication integration"
-  print_status "$BLUE" "  • Modern UI components with Tailwind CSS"
-  print_status "$BLUE" "  • TypeScript configuration"
-  print_status "$BLUE" ""
-}
+
 
 # STEP 5: Template Substitution Functions
 
@@ -883,27 +842,228 @@ initialize_external_tools() {
   print_status "$GREEN" "✅ External tools initialization complete"
 }
 
-# Main execution starts here
-print_status "$BLUE" "🚀 Next.js Starter Script v2.1"
-print_status "$BLUE" "================================"
+# STEP 7: Progress Indicators and User Experience
 
-# Check if user provided an app name
+# Function to show progress with visual indicators and time estimation
+show_progress() {
+  local current=$1
+  local total=$2
+  local message=$3
+  local percentage=$((current * 100 / total))
+  
+  # Create progress bar
+  local bar_length=30
+  local filled_length=$((current * bar_length / total))
+  local bar=""
+  
+  for ((i=0; i<filled_length; i++)); do
+    bar+="█"
+  done
+  
+  for ((i=filled_length; i<bar_length; i++)); do
+    bar+="░"
+  done
+  
+  # Calculate estimated time remaining (rough estimates)
+  local step_times=(30 120 90 15 20 10 15 5)  # Estimated seconds per step
+  local remaining_time=0
+  for ((i=current; i<total; i++)); do
+    remaining_time=$((remaining_time + step_times[i]))
+  done
+  
+  local time_display=""
+  if [ $remaining_time -gt 60 ]; then
+    local minutes=$((remaining_time / 60))
+    local seconds=$((remaining_time % 60))
+    time_display=" (~${minutes}m ${seconds}s remaining)"
+  elif [ $remaining_time -gt 0 ]; then
+    time_display=" (~${remaining_time}s remaining)"
+  fi
+  
+  print_status "$BLUE" "[$current/$total] $bar $percentage%$time_display - $message"
+}
+
+# Function to show step completion with timing
+show_step_complete() {
+  local step_name=$1
+  local duration=${2:-""}
+  
+  if [ -n "$duration" ]; then
+    print_status "$GREEN" "  ✅ $step_name completed in ${duration}s"
+  else
+    print_status "$GREEN" "  ✅ $step_name completed"
+  fi
+}
+
+# Function to handle errors with progress context
+handle_step_error() {
+  local step_number=$1
+  local step_name=$2
+  local error_message=$3
+  
+  print_status "$RED" "  ❌ Step $step_number failed: $step_name"
+  print_status "$RED" "     Error: $error_message"
+  print_status "$YELLOW" "     💡 You can try running the script again or complete this step manually"
+}
+
+# Enhanced completion message with detailed next steps
+show_enhanced_completion_message() {
+  echo ""
+  print_status "$GREEN" "🎉 Setup Complete! Your $APP_NAME is ready!"
+  echo ""
+  print_status "$BLUE" "📁 Project Structure Created:"
+  print_status "$BLUE" "   ├── src/app/                 # App Router pages"
+  print_status "$BLUE" "   ├── src/components/          # Reusable components"
+  print_status "$BLUE" "   ├── src/lib/                 # Utility functions"
+  print_status "$BLUE" "   ├── convex/                  # Backend functions"
+  print_status "$BLUE" "   ├── .env.local               # Environment variables"
+  print_status "$BLUE" "   └── package.json             # Dependencies"
+  echo ""
+  print_status "$YELLOW" "🚀 Next Steps:"
+  print_status "$YELLOW" "   1. Navigate to your project:"
+  print_status "$BLUE" "      cd $APP_NAME"
+  echo ""
+  print_status "$YELLOW" "   2. Set up Convex (Backend):"
+  print_status "$BLUE" "      npx convex dev"
+  print_status "$BLUE" "      → Follow prompts to create deployment"
+  print_status "$BLUE" "      → Copy URLs to .env.local"
+  echo ""
+  print_status "$YELLOW" "   3. Set up Clerk (Authentication):"
+  print_status "$BLUE" "      → Visit: https://clerk.com"
+  print_status "$BLUE" "      → Create new application"
+  print_status "$BLUE" "      → Copy API keys to .env.local"
+  echo ""
+  print_status "$YELLOW" "   4. Start development server:"
+  print_status "$BLUE" "      npm run dev"
+  print_status "$BLUE" "      → Open: http://localhost:3000"
+  echo ""
+  print_status "$GREEN" "✨ Features Included:"
+  print_status "$GREEN" "   • TypeScript & Tailwind CSS"
+  print_status "$GREEN" "   • Convex real-time database"
+  print_status "$GREEN" "   • Clerk authentication"
+  print_status "$GREEN" "   • Custom UI components"
+  print_status "$GREEN" "   • Utility functions"
+  print_status "$GREEN" "   • Professional project structure"
+  echo ""
+  print_status "$BLUE" "📚 Documentation:"
+  print_status "$BLUE" "   • Next.js: https://nextjs.org/docs"
+  print_status "$BLUE" "   • Convex: https://docs.convex.dev"
+  print_status "$BLUE" "   • Clerk: https://clerk.com/docs"
+  print_status "$BLUE" "   • Tailwind: https://tailwindcss.com/docs"
+  echo ""
+  print_status "$GREEN" "🎯 Happy coding with $APP_NAME!"
+}
+
+# Main execution function with progress tracking and timing
+main() {
+  local total_steps=8
+  local start_time=$(date +%s)
+  
+  print_status "$BLUE" "🚀 Next.js Starter Script v2.2"
+  print_status "$BLUE" "================================"
+  print_status "$BLUE" "Creating: $APP_NAME"
+  print_status "$BLUE" "Started at: $(date '+%Y-%m-%d %H:%M:%S')"
+  echo ""
+  
+  # Step 1: Network Check
+  local step_start=$(date +%s)
+  show_progress 1 $total_steps "🌐 Checking network connectivity..."
+  if check_network; then
+    local step_duration=$(($(date +%s) - step_start))
+    show_step_complete "Network connectivity check" $step_duration
+  else
+    handle_step_error 1 "Network connectivity check" "Unable to reach npm registry"
+    exit 1
+  fi
+  echo ""
+  
+  # Step 2: Create Next.js App
+  step_start=$(date +%s)
+  show_progress 2 $total_steps "🚀 Creating Next.js application..."
+  if create_nextjs_app; then
+    local step_duration=$(($(date +%s) - step_start))
+    show_step_complete "Next.js application creation" $step_duration
+  else
+    handle_step_error 2 "Next.js application creation" "Failed to create app"
+    exit 1
+  fi
+  echo ""
+  
+  # Step 3: Install Dependencies
+  step_start=$(date +%s)
+  show_progress 3 $total_steps "📦 Installing dependencies..."
+  install_dependencies  # This function handles its own errors gracefully
+  local step_duration=$(($(date +%s) - step_start))
+  show_step_complete "Dependencies installation" $step_duration
+  echo ""
+  
+  # Step 4: Configuration Files
+  step_start=$(date +%s)
+  show_progress 4 $total_steps "⚙️  Setting up configuration files..."
+  if create_config_files; then
+    local step_duration=$(($(date +%s) - step_start))
+    show_step_complete "Configuration files setup" $step_duration
+  else
+    handle_step_error 4 "Configuration files setup" "Failed to create config files"
+  fi
+  echo ""
+  
+  # Step 5: Template Files
+  step_start=$(date +%s)
+  show_progress 5 $total_steps "🔧 Creating template components..."
+  if create_template_files; then
+    local step_duration=$(($(date +%s) - step_start))
+    show_step_complete "Template components creation" $step_duration
+  else
+    handle_step_error 5 "Template components creation" "Failed to create templates"
+  fi
+  echo ""
+  
+  # Step 6: Database Schema
+  step_start=$(date +%s)
+  show_progress 6 $total_steps "📊 Setting up database schema..."
+  if create_convex_schema && create_convex_functions; then
+    local step_duration=$(($(date +%s) - step_start))
+    show_step_complete "Database schema setup" $step_duration
+  else
+    handle_step_error 6 "Database schema setup" "Failed to create Convex schema"
+  fi
+  echo ""
+  
+  # Step 7: External Tools
+  step_start=$(date +%s)
+  show_progress 7 $total_steps "⚡ Initializing external tools..."
+  if create_convex_config && update_env_with_convex_instructions; then
+    local step_duration=$(($(date +%s) - step_start))
+    show_step_complete "External tools initialization" $step_duration
+  else
+    handle_step_error 7 "External tools initialization" "Failed to initialize tools"
+  fi
+  echo ""
+  
+  # Step 8: Finalization
+  step_start=$(date +%s)
+  show_progress 8 $total_steps "✅ Finalizing setup..."
+  local total_duration=$(($(date +%s) - start_time))
+  local minutes=$((total_duration / 60))
+  local seconds=$((total_duration % 60))
+  
+  # Add timing info to completion message
+  print_status "$GREEN" "  ✅ Setup completed in ${minutes}m ${seconds}s"
+  echo ""
+  show_enhanced_completion_message
+}
+
+# Script entry point
 if [ -z "$1" ]; then
   print_status "$RED" "❌ Error: Please provide an app name"
   print_status "$BLUE" "Usage: $0 <app-name>"
+  print_status "$BLUE" "Example: $0 my-awesome-app"
   exit 1
 fi
 
 APP_NAME="$1"
 validate_app_name "$APP_NAME"
 
-print_status "$GREEN" "✅ Creating app: $APP_NAME"
-
-# Execute the main workflow
-check_network
-create_nextjs_app
-install_dependencies
-create_config_files
-create_template_files
-initialize_external_tools
-show_final_instructions 
+# Execute the main workflow with progress tracking
+main 
