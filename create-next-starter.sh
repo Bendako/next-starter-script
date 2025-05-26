@@ -1,6 +1,18 @@
 #!/bin/bash
 # This is called the "shebang" - tells the system to use bash
 
+# STEP 8: Comprehensive Error Handling and Cleanup
+# Set strict error handling
+set -e          # Exit on any error
+set -u          # Exit on undefined variable  
+set -o pipefail # Exit on pipe failure
+
+# Global variables for cleanup
+CLEANUP_NEEDED=false
+TEMP_FILES=()
+CREATED_DIRS=()
+PARTIAL_INSTALL=false
+
 # Configuration
 MAX_RETRIES=3
 RETRY_DELAY=5
@@ -10,7 +22,239 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
+
+# Function to log errors with timestamp
+log_error() {
+  local message="$1"
+  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+  echo "[$timestamp] ERROR: $message" >> "setup-error.log"
+  print_status "$RED" "❌ $message"
+}
+
+# Function to log info with timestamp
+log_info() {
+  local message="$1"
+  local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+  echo "[$timestamp] INFO: $message" >> "setup.log"
+}
+
+# Comprehensive cleanup function
+cleanup() {
+  local exit_code=$?
+  
+  if [ $exit_code -ne 0 ] && [ "$CLEANUP_NEEDED" = true ]; then
+    print_status "$YELLOW" ""
+    print_status "$YELLOW" "🧹 Cleaning up after failed installation..."
+    
+    # Remove temporary files
+    for temp_file in "${TEMP_FILES[@]}"; do
+      if [ -f "$temp_file" ]; then
+        rm -f "$temp_file"
+        print_status "$YELLOW" "  🗑️  Removed temporary file: $temp_file"
+      fi
+    done
+    
+    # Ask user if they want to remove the partially created directory
+    if [ -n "${APP_NAME:-}" ] && [ -d "${APP_NAME:-}" ]; then
+      print_status "$YELLOW" ""
+      print_status "$YELLOW" "❓ The directory '$APP_NAME' was partially created."
+      read -p "Do you want to remove it? (y/N): " -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        rm -rf "$APP_NAME"
+        print_status "$GREEN" "  🗑️  Removed directory: $APP_NAME"
+      else
+        print_status "$BLUE" "  📁 Keeping directory: $APP_NAME"
+        print_status "$BLUE" "     You can continue setup manually or run the script again"
+      fi
+    fi
+    
+    print_status "$RED" ""
+    print_status "$RED" "❌ Setup failed!"
+    print_status "$YELLOW" "📋 Troubleshooting tips:"
+    print_status "$YELLOW" "  1. Check your internet connection"
+    print_status "$YELLOW" "  2. Ensure you have the latest Node.js and npm"
+    print_status "$YELLOW" "  3. Try running: npm cache clean --force"
+    print_status "$YELLOW" "  4. Check the error log: setup-error.log"
+    print_status "$YELLOW" "  5. Try running the script again"
+    
+  elif [ $exit_code -eq 0 ]; then
+    # Successful completion - clean up logs
+    [ -f "setup-error.log" ] && rm -f "setup-error.log"
+    print_status "$GREEN" "🎉 Setup completed successfully!"
+  fi
+  
+  # Reset error handling for cleanup
+  set +e
+}
+
+# Set up trap for cleanup on exit
+trap cleanup EXIT
+
+# Function to handle interruption (Ctrl+C)
+handle_interrupt() {
+  print_status "$YELLOW" ""
+  print_status "$YELLOW" "⚠️  Setup interrupted by user"
+  CLEANUP_NEEDED=true
+  exit 130
+}
+trap handle_interrupt SIGINT SIGTERM
+
+# Function to check prerequisites with detailed error messages
+check_prerequisites() {
+  print_status "$BLUE" "🔍 Checking prerequisites..."
+  local missing=()
+  local warnings=()
+  
+  # Check for required commands
+  if ! command -v node &> /dev/null; then
+    missing+=("Node.js")
+  else
+    # Check Node version
+    local node_version=$(node --version | cut -d 'v' -f 2)
+    local major_version=$(echo $node_version | cut -d '.' -f 1)
+    
+    if [ "$major_version" -lt 18 ]; then
+      missing+=("Node.js 18+ (current: v$node_version)")
+    else
+      log_info "Node.js version: v$node_version"
+    fi
+  fi
+  
+  if ! command -v npm &> /dev/null; then
+    missing+=("npm")
+  else
+    local npm_version=$(npm --version)
+    log_info "npm version: $npm_version"
+  fi
+  
+  if ! command -v git &> /dev/null; then
+    warnings+=("Git (recommended for version control)")
+  fi
+  
+  # Check disk space (at least 1GB free)
+  local available_space=$(df . | awk 'NR==2 {print $4}')
+  if [ "$available_space" -lt 1048576 ]; then # 1GB in KB
+    warnings+=("Low disk space (less than 1GB available)")
+  fi
+  
+  # Report missing requirements
+  if [ ${#missing[@]} -ne 0 ]; then
+    log_error "Missing required tools: ${missing[*]}"
+    print_status "$RED" "❌ Missing required tools:"
+    for tool in "${missing[@]}"; do
+      print_status "$RED" "    - $tool"
+    done
+    print_status "$YELLOW" ""
+    print_status "$YELLOW" "📋 Installation instructions:"
+    print_status "$YELLOW" "  Node.js: https://nodejs.org/"
+    print_status "$YELLOW" "  npm: Comes with Node.js"
+    exit 1
+  fi
+  
+  # Report warnings
+  if [ ${#warnings[@]} -ne 0 ]; then
+    print_status "$YELLOW" "⚠️  Warnings:"
+    for warning in "${warnings[@]}"; do
+      print_status "$YELLOW" "    - $warning"
+    done
+  fi
+  
+  print_status "$GREEN" "✅ Prerequisites check passed"
+  log_info "Prerequisites check completed successfully"
+}
+
+# Enhanced safe package installation with recovery
+safe_npm_install() {
+  local package=$1
+  local max_retries=${2:-$MAX_RETRIES}
+  local retry=0
+  
+  while [ $retry -lt $max_retries ]; do
+    log_info "Installing $package (attempt $((retry + 1))/$max_retries)"
+    
+    if npm install "$package" --no-audit --no-fund; then
+      log_info "Successfully installed $package"
+      return 0
+    fi
+    
+    retry=$((retry + 1))
+    
+    if [ $retry -lt $max_retries ]; then
+      print_status "$YELLOW" "⚠️  Retry $retry/$max_retries for $package..."
+      
+      # Try different recovery strategies
+      case $retry in
+        1)
+          print_status "$BLUE" "🔄 Trying with --legacy-peer-deps..."
+          if npm install "$package" --legacy-peer-deps --no-audit --no-fund; then
+            log_info "Successfully installed $package with --legacy-peer-deps"
+            return 0
+          fi
+          ;;
+        2)
+          print_status "$BLUE" "🧹 Cleaning cache and retrying..."
+          npm cache clean --force &> /dev/null || true
+          ;;
+      esac
+      
+      sleep $RETRY_DELAY
+    fi
+  done
+  
+  log_error "Failed to install $package after $max_retries attempts"
+  return 1
+}
+
+# Function to verify installation integrity
+verify_installation() {
+  print_status "$BLUE" "🔍 Verifying installation integrity..."
+  
+  local errors=()
+  
+  # Check if package.json exists and is valid
+  if [ ! -f "package.json" ]; then
+    errors+=("package.json not found")
+  else
+    if ! node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))" 2>/dev/null; then
+      errors+=("package.json is invalid")
+    fi
+  fi
+  
+  # Check if node_modules exists
+  if [ ! -d "node_modules" ]; then
+    errors+=("node_modules directory not found")
+  fi
+  
+  # Check if key files were created
+  local required_files=(
+    "src/app/layout.tsx"
+    "src/app/page.tsx"
+    ".env.local"
+    "src/lib/utils.ts"
+  )
+  
+  for file in "${required_files[@]}"; do
+    if [ ! -f "$file" ]; then
+      errors+=("Required file missing: $file")
+    fi
+  done
+  
+  if [ ${#errors[@]} -ne 0 ]; then
+    log_error "Installation verification failed"
+    print_status "$RED" "❌ Installation verification failed:"
+    for error in "${errors[@]}"; do
+      print_status "$RED" "    - $error"
+    done
+    return 1
+  fi
+  
+  print_status "$GREEN" "✅ Installation verification passed"
+  log_info "Installation verification completed successfully"
+  return 0
+}
 
 # Function to print colored output
 print_status() {
@@ -19,37 +263,80 @@ print_status() {
   echo -e "${color}${message}${NC}"
 }
 
-# Function to validate app name
+# Function to validate app name with enhanced error handling
 validate_app_name() {
-  if [[ ! "$1" =~ ^[a-zA-Z0-9-]+$ ]]; then
-    print_status "$RED" "❌ App name can only contain letters, numbers, and hyphens"
+  local app_name="$1"
+  
+  # Check if app name is provided
+  if [ -z "$app_name" ]; then
+    log_error "No app name provided"
+    print_status "$YELLOW" "Usage: $0 <app-name>"
+    print_status "$YELLOW" "Example: $0 my-awesome-app"
     exit 1
   fi
   
-  if [ -d "$1" ]; then
-    print_status "$RED" "❌ Directory '$1' already exists"
+  # Check app name format
+  if [[ ! "$app_name" =~ ^[a-zA-Z0-9-]+$ ]]; then
+    log_error "Invalid app name format: $app_name"
+    print_status "$YELLOW" "💡 App name requirements:"
+    print_status "$YELLOW" "  - Only letters, numbers, and hyphens allowed"
+    print_status "$YELLOW" "  - No spaces or special characters"
+    print_status "$YELLOW" "  - Example: my-awesome-app"
     exit 1
   fi
+  
+  # Check if directory already exists
+  if [ -d "$app_name" ]; then
+    log_error "Directory already exists: $app_name"
+    print_status "$YELLOW" "💡 Solutions:"
+    print_status "$YELLOW" "  1. Choose a different name"
+    print_status "$YELLOW" "  2. Remove the existing directory: rm -rf $app_name"
+    print_status "$YELLOW" "  3. Use a different location"
+    exit 1
+  fi
+  
+  log_info "App name validation passed: $app_name"
+  print_status "$GREEN" "✅ App name '$app_name' is valid"
 }
 
-# Function to check network connectivity
+# Function to check network connectivity with enhanced error handling
 check_network() {
   print_status "$BLUE" "🌐 Checking network connectivity..."
-  if ! ping -c 1 registry.npmjs.org &> /dev/null; then
-    print_status "$RED" "❌ No network connection to npm registry"
-    print_status "$YELLOW" "💡 Please check your internet connection and try again"
+  
+  # Test multiple endpoints for better reliability
+  local endpoints=("registry.npmjs.org" "github.com" "google.com")
+  local connected=false
+  
+  for endpoint in "${endpoints[@]}"; do
+    if ping -c 1 -W 5 "$endpoint" &> /dev/null; then
+      connected=true
+      log_info "Network connectivity verified via $endpoint"
+      break
+    fi
+  done
+  
+  if [ "$connected" = false ]; then
+    log_error "No network connectivity detected"
+    print_status "$YELLOW" "💡 Troubleshooting network issues:"
+    print_status "$YELLOW" "  1. Check your internet connection"
+    print_status "$YELLOW" "  2. Verify DNS settings"
+    print_status "$YELLOW" "  3. Check firewall/proxy settings"
+    print_status "$YELLOW" "  4. Try using a different network"
     exit 1
   fi
+  
   print_status "$GREEN" "✅ Network connection verified"
 }
 
-# Function to create Next.js app with retry logic
+# Function to create Next.js app with enhanced error handling
 create_nextjs_app() {
   print_status "$BLUE" "🚀 Creating Next.js application..."
-
+  CLEANUP_NEEDED=true  # Enable cleanup from this point
+  
   local attempt=1
   while [ $attempt -le $MAX_RETRIES ]; do
     print_status "$YELLOW" "📝 Attempt $attempt of $MAX_RETRIES..."
+    log_info "Creating Next.js app: $APP_NAME (attempt $attempt)"
     
     # Create Next.js app with all options
     if npx create-next-app@latest "$APP_NAME" \
@@ -60,44 +347,49 @@ create_nextjs_app() {
       --src-dir \
       --import-alias "@/*" \
       --yes; then
+      
+      log_info "Next.js app created successfully"
       print_status "$GREEN" "✅ Next.js app created successfully"
+      
+      # Verify the directory was created
+      if [ ! -d "$APP_NAME" ]; then
+        log_error "App directory was not created despite successful command"
+        exit 1
+      fi
+      
       return 0
     fi
 
     if [ $attempt -eq $MAX_RETRIES ]; then
-      print_status "$RED" "❌ Failed to create Next.js app after $MAX_RETRIES attempts"
+      log_error "Failed to create Next.js app after $MAX_RETRIES attempts"
+      print_status "$YELLOW" "💡 Possible solutions:"
+      print_status "$YELLOW" "  1. Check your internet connection"
+      print_status "$YELLOW" "  2. Try: npm cache clean --force"
+      print_status "$YELLOW" "  3. Update npm: npm install -g npm@latest"
+      print_status "$YELLOW" "  4. Try a different app name"
       exit 1
     fi
 
     print_status "$YELLOW" "⚠️  Attempt $attempt failed, retrying in $RETRY_DELAY seconds..."
+    log_info "Attempt $attempt failed, retrying..."
     sleep $RETRY_DELAY
     ((attempt++))
   done
 }
 
-# Function to install a single package with retry logic
+# Function to install a single package with enhanced error handling
 install_package() {
   local package_name=$1
-  local attempt=1
   
-  while [ $attempt -le $MAX_RETRIES ]; do
-    print_status "$BLUE" "  📦 Installing $package_name (attempt $attempt/$MAX_RETRIES)..."
-    
-    if npm install "$package_name"; then
-      print_status "$GREEN" "  ✅ Successfully installed $package_name"
-      return 0
-    fi
-
-    if [ $attempt -eq $MAX_RETRIES ]; then
-      print_status "$RED" "  ❌ Failed to install $package_name after $MAX_RETRIES attempts"
-      print_status "$YELLOW" "  💡 You can try installing it manually later with: npm install $package_name"
-      return 1
-    fi
-
-    print_status "$YELLOW" "  ⚠️  Installation failed, retrying in $RETRY_DELAY seconds..."
-    sleep $RETRY_DELAY
-    ((attempt++))
-  done
+  # Use the enhanced safe_npm_install function
+  if safe_npm_install "$package_name"; then
+    print_status "$GREEN" "  ✅ Successfully installed $package_name"
+    return 0
+  else
+    print_status "$RED" "  ❌ Failed to install $package_name"
+    print_status "$YELLOW" "  💡 You can try installing it manually later with: npm install $package_name"
+    return 1
+  fi
 }
 
 # Function to clean npm cache if needed
@@ -107,13 +399,20 @@ clean_npm_cache() {
   print_status "$GREEN" "✅ npm cache cleaned"
 }
 
-# Function to install all dependencies
+# Function to install all dependencies with enhanced error handling
 install_dependencies() {
-  # Navigate to project directory
-  cd "$APP_NAME" || {
-    print_status "$RED" "❌ Failed to enter project directory"
+  # Navigate to project directory with error handling
+  if ! cd "$APP_NAME"; then
+    log_error "Failed to enter project directory: $APP_NAME"
+    print_status "$YELLOW" "💡 Possible issues:"
+    print_status "$YELLOW" "  1. Directory doesn't exist"
+    print_status "$YELLOW" "  2. Permission issues"
+    print_status "$YELLOW" "  3. Directory was deleted"
     exit 1
-  }
+  fi
+  
+  log_info "Entered project directory: $APP_NAME"
+  PARTIAL_INSTALL=true  # Mark that we've started installing
 
   print_status "$BLUE" "📦 Installing additional dependencies..."
 
@@ -129,23 +428,35 @@ install_dependencies() {
   )
 
   local failed_packages=()
+  local installed_count=0
   
   # Install packages one by one with error checking
   for package in "${packages[@]}"; do
-    if ! install_package "$package"; then
+    if install_package "$package"; then
+      ((installed_count++))
+    else
       failed_packages+=("$package")
     fi
   done
 
-  # Report results
+  # Report results with detailed statistics
+  local total_packages=${#packages[@]}
+  log_info "Package installation completed: $installed_count/$total_packages successful"
+  
   if [ ${#failed_packages[@]} -eq 0 ]; then
-    print_status "$GREEN" "✅ All dependencies installed successfully"
+    print_status "$GREEN" "✅ All dependencies installed successfully ($installed_count/$total_packages)"
   else
-    print_status "$YELLOW" "⚠️  Some packages failed to install:"
+    print_status "$YELLOW" "⚠️  Package installation summary:"
+    print_status "$GREEN" "    ✅ Successful: $installed_count/$total_packages"
+    print_status "$RED" "    ❌ Failed: ${#failed_packages[@]}/$total_packages"
+    print_status "$YELLOW" "    Failed packages:"
     for package in "${failed_packages[@]}"; do
-      print_status "$YELLOW" "    - $package"
+      print_status "$YELLOW" "      - $package"
     done
-    print_status "$BLUE" "💡 You can install them manually later or run the script again"
+    print_status "$BLUE" "💡 You can install failed packages manually later or run the script again"
+    
+    # Log failed packages for troubleshooting
+    log_error "Failed to install packages: ${failed_packages[*]}"
   fi
 }
 
@@ -954,16 +1265,25 @@ show_enhanced_completion_message() {
   print_status "$GREEN" "🎯 Happy coding with $APP_NAME!"
 }
 
-# Main execution function with progress tracking and timing
+# Main execution function with enhanced error handling and progress tracking
 main() {
-  local total_steps=8
+  local total_steps=9  # Added verification step
   local start_time=$(date +%s)
   
-  print_status "$BLUE" "🚀 Next.js Starter Script v2.2"
-  print_status "$BLUE" "================================"
+  # Initialize logging
+  log_info "Starting Next.js project setup script v2.3"
+  log_info "App name: $APP_NAME"
+  log_info "Started at: $(date '+%Y-%m-%d %H:%M:%S')"
+  
+  print_status "$BLUE" "🚀 Next.js Starter Script v2.3 (Enhanced Error Handling)"
+  print_status "$BLUE" "========================================================="
   print_status "$BLUE" "Creating: $APP_NAME"
   print_status "$BLUE" "Started at: $(date '+%Y-%m-%d %H:%M:%S')"
+  print_status "$BLUE" "Logging to: setup.log"
   echo ""
+  
+  # Run prerequisite checks first
+  check_prerequisites
   
   # Step 1: Network Check
   local step_start=$(date +%s)
@@ -1041,12 +1361,27 @@ main() {
   fi
   echo ""
   
-  # Step 8: Finalization
+  # Step 8: Verification
   step_start=$(date +%s)
-  show_progress 8 $total_steps "✅ Finalizing setup..."
+  show_progress 8 $total_steps "🔍 Verifying installation..."
+  if verify_installation; then
+    local step_duration=$(($(date +%s) - step_start))
+    show_step_complete "Installation verification" $step_duration
+  else
+    handle_step_error 8 "Installation verification" "Some files may be missing or corrupted"
+    print_status "$YELLOW" "⚠️  Continuing with setup, but please check the installation manually"
+  fi
+  echo ""
+  
+  # Step 9: Finalization
+  step_start=$(date +%s)
+  show_progress 9 $total_steps "✅ Finalizing setup..."
   local total_duration=$(($(date +%s) - start_time))
   local minutes=$((total_duration / 60))
   local seconds=$((total_duration % 60))
+  
+  # Log completion
+  log_info "Setup completed successfully in ${total_duration}s"
   
   # Add timing info to completion message
   print_status "$GREEN" "  ✅ Setup completed in ${minutes}m ${seconds}s"
@@ -1054,8 +1389,9 @@ main() {
   show_enhanced_completion_message
 }
 
-# Script entry point
+# Script entry point with enhanced error handling
 if [ -z "$1" ]; then
+  log_error "No app name provided"
   print_status "$RED" "❌ Error: Please provide an app name"
   print_status "$BLUE" "Usage: $0 <app-name>"
   print_status "$BLUE" "Example: $0 my-awesome-app"
@@ -1065,5 +1401,8 @@ fi
 APP_NAME="$1"
 validate_app_name "$APP_NAME"
 
-# Execute the main workflow with progress tracking
-main 
+# Execute the main workflow with comprehensive error handling
+if ! main; then
+  log_error "Main execution failed"
+  exit 1
+fi 
