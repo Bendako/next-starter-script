@@ -1,8 +1,63 @@
 #!/bin/bash
-# This is called the "shebang" - tells the system to use bash
+# ============================================================================
+# NEXT.JS STARTER SCRIPT v2.4 - Professional Project Generator
+# ============================================================================
+# 
+# DESCRIPTION:
+#   Automated Next.js application setup with TypeScript, Tailwind CSS,
+#   Convex database, and Clerk authentication. Includes professional
+#   project structure, components, and development tools.
+#
+# AUTHOR: Built with ❤️ for developers who value their time
+# VERSION: 2.4
+# CREATED: Following the "Building Your Own Next.js Starter Script" tutorial
+#
+# FEATURES:
+#   ✅ Next.js 14+ with App Router
+#   ✅ TypeScript & Tailwind CSS  
+#   ✅ Convex real-time database
+#   ✅ Clerk authentication
+#   ✅ Professional project structure
+#   ✅ Comprehensive error handling
+#   ✅ Progress tracking & logging
+#   ✅ Multiple templates (minimal, default, full)
+#   ✅ Portable across macOS, Linux, Windows
+#   ✅ Network resilience with retries
+#   ✅ Dry run mode for previewing
+#   ✅ Force mode for overwriting
+#   ✅ Verbose logging and debugging
+#
+# USAGE:
+#   ./create-next-starter.sh [OPTIONS] <app-name>
+#   
+# EXAMPLES:
+#   ./create-next-starter.sh my-app
+#   ./create-next-starter.sh --verbose --skip-convex my-app
+#   ./create-next-starter.sh --template minimal simple-app
+#   ./create-next-starter.sh --dry-run my-app
+#
+# REQUIREMENTS:
+#   • Node.js 18+ (https://nodejs.org/)
+#   • npm (comes with Node.js)
+#   • Internet connection
+#   • At least 1GB free disk space
+#
+# ============================================================================
 
-# STEP 9: Making Your Script Portable
-# Script configuration and portability features
+# STEP 10: Complete Script Structure
+# This script follows the tutorial structure with all 10 steps implemented:
+# Step 1: Basic Bash Script Structure ✅
+# Step 2: Handle User Input ✅  
+# Step 3: Automate NPM Commands ✅
+# Step 4: File Creation and Manipulation ✅
+# Step 5: Template Substitution ✅
+# Step 6: Initialize External Tools ✅
+# Step 7: Progress Indicators and User Experience ✅
+# Step 8: Error Handling and Cleanup ✅
+# Step 9: Making Your Script Portable ✅
+# Step 10: Put It All Together ✅
+
+# STEP 8 & 9: Script configuration and portability features
 set -e          # Exit on any error
 set -u          # Exit on undefined variable  
 set -o pipefail # Exit on pipe failure
@@ -138,6 +193,7 @@ OPTIONS:
   --force              Overwrite existing directory if it exists
   --template TYPE      Use specific template (default, minimal, full)
   --node-version MIN   Minimum Node.js version required (default: 18)
+  --test               Run script self-test and exit
   --help, -h           Show this help message
   --version, -v        Show script version
 
@@ -237,6 +293,16 @@ parse_arguments() {
           shift 2
         else
           log_error "Option --node-version requires a value"
+          exit 1
+        fi
+        ;;
+      --test)
+        echo "🧪 Running script self-test..."
+        if script_self_test; then
+          echo "✅ Script is ready to use!"
+          exit 0
+        else
+          echo "❌ Script has issues that need to be fixed"
           exit 1
         fi
         ;;
@@ -1844,18 +1910,125 @@ main() {
   show_enhanced_completion_message
 }
 
-# STEP 9: Script entry point with portable argument parsing
-# Parse command line arguments first
-parse_arguments "$@"
+# ============================================================================
+# STEP 10: PUT IT ALL TOGETHER - Complete Script Structure
+# ============================================================================
 
-# Show dry run summary if requested
-show_dry_run_summary
+# STEP 10: Script Self-Test Function (Production Ready Feature)
+script_self_test() {
+  print_status "$BLUE" "🧪 Running script self-test..."
+  
+  local test_failures=0
+  
+  # Test 1: Check all required functions exist
+  local required_functions=(
+    "parse_arguments" "show_help" "show_version" "validate_app_name"
+    "check_prerequisites" "detect_environment" "check_network"
+    "create_nextjs_app" "install_dependencies" "create_config_files"
+    "create_template_files" "verify_installation" "show_enhanced_completion_message"
+  )
+  
+  for func in "${required_functions[@]}"; do
+    if ! declare -f "$func" > /dev/null; then
+      print_status "$RED" "  ❌ Missing function: $func"
+      ((test_failures++))
+    fi
+  done
+  
+  # Test 2: Check script permissions
+  if [ ! -x "$0" ]; then
+    print_status "$RED" "  ❌ Script is not executable"
+    ((test_failures++))
+  fi
+  
+  # Test 3: Check required commands
+  local required_commands=("node" "npm" "npx")
+  for cmd in "${required_commands[@]}"; do
+    if ! command -v "$cmd" &> /dev/null; then
+      print_status "$RED" "  ❌ Missing command: $cmd"
+      ((test_failures++))
+    fi
+  done
+  
+  # Test 4: Validate script variables
+  if [ -z "${SCRIPT_VERSION:-}" ]; then
+    print_status "$RED" "  ❌ SCRIPT_VERSION not set"
+    ((test_failures++))
+  fi
+  
+  # Report results
+  if [ $test_failures -eq 0 ]; then
+    print_status "$GREEN" "  ✅ All self-tests passed"
+    return 0
+  else
+    print_status "$RED" "  ❌ $test_failures test(s) failed"
+    return 1
+  fi
+}
 
-# Validate the app name with new options
-validate_app_name "$APP_NAME"
+# Function to source all our functions (for organization)
+source_functions() {
+  # All functions are already defined above in logical order:
+  # 1. Configuration and setup functions
+  # 2. Utility and helper functions  
+  # 3. Validation functions
+  # 4. Core functionality functions
+  # 5. Template and file creation functions
+  # 6. Progress and UI functions
+  # 7. Main execution function
+  
+  log_info "All functions loaded and ready"
+  
+  # Run self-test in verbose mode
+  if [ "$VERBOSE" = true ]; then
+    script_self_test
+  fi
+}
 
-# Execute the main workflow with comprehensive error handling
-if ! main; then
-  log_error "Main execution failed"
-  exit 1
+# STEP 10.1: Complete Script Structure - Main Execution Flow
+main_execution() {
+  # Source all functions (they're already defined above)
+  source_functions
+  
+  # Parse command line arguments
+  parse_arguments "$@"
+  
+  # Show dry run summary if requested (exits if dry run)
+  show_dry_run_summary
+  
+  # Validate the app name with enhanced options
+  validate_app_name "$APP_NAME"
+  
+  # Execute the main workflow with comprehensive error handling
+  if ! main; then
+    log_error "Main execution failed"
+    exit 1
+  fi
+  
+  # Final success message
+  log_info "Script execution completed successfully"
+}
+
+# ============================================================================
+# SCRIPT ENTRY POINT - This is where everything starts
+# ============================================================================
+
+# Welcome message for verbose mode
+if [[ "${1:-}" == "--verbose" ]] || [[ "${2:-}" == "--verbose" ]] || [[ "${3:-}" == "--verbose" ]]; then
+  echo "🚀 Next.js Starter Script v${SCRIPT_VERSION} - Starting..."
+  echo "📝 Initializing with arguments: $*"
+fi
+
+# Run the complete script
+main_execution "$@"
+
+# ============================================================================
+# END OF SCRIPT
+# ============================================================================
+
+# Final status for verbose mode
+if [ "$VERBOSE" = true ]; then
+  echo ""
+  echo "🎯 Script execution completed at: $(date '+%Y-%m-%d %H:%M:%S')"
+  echo "📊 Check setup.log for detailed execution log"
 fi 
