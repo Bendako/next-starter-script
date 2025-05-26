@@ -1,17 +1,28 @@
 #!/bin/bash
 # This is called the "shebang" - tells the system to use bash
 
-# STEP 8: Comprehensive Error Handling and Cleanup
-# Set strict error handling
+# STEP 9: Making Your Script Portable
+# Script configuration and portability features
 set -e          # Exit on any error
 set -u          # Exit on undefined variable  
 set -o pipefail # Exit on pipe failure
+
+# STEP 9.1: Default values for command-line options
+SKIP_CONVEX=false
+SKIP_CLERK=false
+VERBOSE=false
+DRY_RUN=false
+FORCE=false
+TEMPLATE="default"
+NODE_VERSION_MIN=18
+SCRIPT_VERSION="2.4"
 
 # Global variables for cleanup
 CLEANUP_NEEDED=false
 TEMP_FILES=()
 CREATED_DIRS=()
 PARTIAL_INSTALL=false
+APP_NAME=""
 
 # Configuration
 MAX_RETRIES=3
@@ -23,6 +34,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Function to log errors with timestamp
@@ -102,7 +114,240 @@ handle_interrupt() {
 }
 trap handle_interrupt SIGINT SIGTERM
 
-# Function to check prerequisites with detailed error messages
+# STEP 9.1: Help system
+show_help() {
+  cat << EOF
+🚀 Next.js Starter Script v${SCRIPT_VERSION} - Professional Project Generator
+
+USAGE:
+  $0 [OPTIONS] <app-name>
+
+DESCRIPTION:
+  Create a new Next.js application with TypeScript, Tailwind CSS, Convex database,
+  and Clerk authentication. Includes professional project structure, components,
+  and development tools.
+
+REQUIRED:
+  <app-name>           Name for your new application (letters, numbers, hyphens only)
+
+OPTIONS:
+  --skip-convex        Skip Convex database setup
+  --skip-clerk         Skip Clerk authentication setup
+  --verbose            Show detailed output and debug information
+  --dry-run            Show what would be done without executing
+  --force              Overwrite existing directory if it exists
+  --template TYPE      Use specific template (default, minimal, full)
+  --node-version MIN   Minimum Node.js version required (default: 18)
+  --help, -h           Show this help message
+  --version, -v        Show script version
+
+TEMPLATES:
+  default              Standard setup with all features
+  minimal              Basic Next.js with TypeScript and Tailwind only
+  full                 Everything + additional tools (Prisma, tRPC, etc.)
+
+EXAMPLES:
+  $0 my-awesome-app                    # Standard setup
+  $0 --skip-convex my-app              # Without Convex database
+  $0 --verbose --skip-clerk my-app     # Without Clerk, with detailed output
+  $0 --template minimal simple-app     # Minimal template
+  $0 --force --verbose my-app          # Overwrite existing, verbose output
+  $0 --dry-run my-app                  # Preview what would be created
+
+REQUIREMENTS:
+  • Node.js ${NODE_VERSION_MIN}+ (https://nodejs.org/)
+  • npm (comes with Node.js)
+  • Internet connection
+  • At least 1GB free disk space
+
+SUPPORT:
+  Documentation: https://github.com/your-repo/next-starter-script
+  Issues: https://github.com/your-repo/next-starter-script/issues
+
+EOF
+}
+
+# STEP 9.1: Version information
+show_version() {
+  cat << EOF
+Next.js Starter Script v${SCRIPT_VERSION}
+
+Features:
+• Next.js 14+ with App Router
+• TypeScript & Tailwind CSS
+• Convex real-time database
+• Clerk authentication
+• Professional project structure
+• Comprehensive error handling
+• Progress tracking & logging
+
+Built with ❤️  for developers who value their time.
+EOF
+}
+
+# STEP 9.1: Parse command line options
+parse_arguments() {
+  # If no arguments provided, show help
+  if [ $# -eq 0 ]; then
+    show_help
+    exit 0
+  fi
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --skip-convex)
+        SKIP_CONVEX=true
+        log_info "Option: Skip Convex setup enabled"
+        shift
+        ;;
+      --skip-clerk)
+        SKIP_CLERK=true
+        log_info "Option: Skip Clerk setup enabled"
+        shift
+        ;;
+      --verbose)
+        VERBOSE=true
+        log_info "Option: Verbose mode enabled"
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=true
+        log_info "Option: Dry run mode enabled"
+        shift
+        ;;
+      --force)
+        FORCE=true
+        log_info "Option: Force mode enabled"
+        shift
+        ;;
+      --template)
+        if [ -n "${2:-}" ]; then
+          TEMPLATE="$2"
+          log_info "Option: Template set to $TEMPLATE"
+          shift 2
+        else
+          log_error "Option --template requires a value"
+          exit 1
+        fi
+        ;;
+      --node-version)
+        if [ -n "${2:-}" ]; then
+          NODE_VERSION_MIN="$2"
+          log_info "Option: Minimum Node.js version set to $NODE_VERSION_MIN"
+          shift 2
+        else
+          log_error "Option --node-version requires a value"
+          exit 1
+        fi
+        ;;
+      --help|-h)
+        show_help
+        exit 0
+        ;;
+      --version|-v)
+        show_version
+        exit 0
+        ;;
+      -*)
+        log_error "Unknown option: $1"
+        print_status "$YELLOW" "💡 Use --help to see available options"
+        exit 1
+        ;;
+      *)
+        if [ -z "$APP_NAME" ]; then
+          APP_NAME="$1"
+          log_info "App name set to: $APP_NAME"
+        else
+          log_error "Multiple app names provided: '$APP_NAME' and '$1'"
+          print_status "$YELLOW" "💡 Please provide only one app name"
+          exit 1
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  # Validate that app name was provided
+  if [ -z "$APP_NAME" ]; then
+    log_error "No app name provided"
+    print_status "$RED" "❌ Error: Please provide an app name"
+    print_status "$YELLOW" "💡 Use --help for usage information"
+    exit 1
+  fi
+
+  # Validate template option
+  case $TEMPLATE in
+    default|minimal|full)
+      log_info "Using template: $TEMPLATE"
+      ;;
+    *)
+      log_error "Invalid template: $TEMPLATE"
+      print_status "$RED" "❌ Invalid template: $TEMPLATE"
+      print_status "$YELLOW" "💡 Available templates: default, minimal, full"
+      exit 1
+      ;;
+  esac
+}
+
+# STEP 9.2: Enhanced environment detection
+detect_environment() {
+  print_status "$BLUE" "🔍 Detecting environment..."
+  
+  # Detect operating system
+  local os_type=""
+  case "$(uname -s)" in
+    Darwin*)
+      os_type="macOS"
+      ;;
+    Linux*)
+      os_type="Linux"
+      ;;
+    CYGWIN*|MINGW*|MSYS*)
+      os_type="Windows"
+      ;;
+    *)
+      os_type="Unknown"
+      ;;
+  esac
+  
+  log_info "Operating System: $os_type"
+  
+  # Detect architecture
+  local arch=$(uname -m)
+  log_info "Architecture: $arch"
+  
+  # Detect shell
+  local shell_type=$(basename "$SHELL")
+  log_info "Shell: $shell_type"
+  
+  # Check if running in CI environment
+  if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${TRAVIS:-}" ]; then
+    log_info "CI environment detected"
+    print_status "$YELLOW" "⚠️  CI environment detected - some interactive features may be disabled"
+  fi
+  
+  # Check available package managers
+  local package_managers=()
+  command -v npm &> /dev/null && package_managers+=("npm")
+  command -v yarn &> /dev/null && package_managers+=("yarn")
+  command -v pnpm &> /dev/null && package_managers+=("pnpm")
+  command -v bun &> /dev/null && package_managers+=("bun")
+  
+  if [ ${#package_managers[@]} -gt 0 ]; then
+    log_info "Available package managers: ${package_managers[*]}"
+  fi
+  
+  print_status "$GREEN" "✅ Environment detection completed"
+  
+  if [ "$VERBOSE" = true ]; then
+    print_status "$CYAN" "📊 Environment Summary:"
+    print_status "$CYAN" "   OS: $os_type ($arch)"
+    print_status "$CYAN" "   Shell: $shell_type"
+    print_status "$CYAN" "   Package Managers: ${package_managers[*]:-none}"
+  fi
+}
+
+# STEP 9.2: Enhanced prerequisite checking with version detection
 check_prerequisites() {
   print_status "$BLUE" "🔍 Checking prerequisites..."
   local missing=()
@@ -116,10 +361,13 @@ check_prerequisites() {
     local node_version=$(node --version | cut -d 'v' -f 2)
     local major_version=$(echo $node_version | cut -d '.' -f 1)
     
-    if [ "$major_version" -lt 18 ]; then
-      missing+=("Node.js 18+ (current: v$node_version)")
+    if [ "$major_version" -lt "$NODE_VERSION_MIN" ]; then
+      missing+=("Node.js ${NODE_VERSION_MIN}+ (current: v$node_version)")
     else
-      log_info "Node.js version: v$node_version"
+      log_info "Node.js version: v$node_version ✓"
+      if [ "$VERBOSE" = true ]; then
+        print_status "$CYAN" "   Node.js: v$node_version"
+      fi
     fi
   fi
   
@@ -127,17 +375,39 @@ check_prerequisites() {
     missing+=("npm")
   else
     local npm_version=$(npm --version)
-    log_info "npm version: $npm_version"
+    log_info "npm version: $npm_version ✓"
+    if [ "$VERBOSE" = true ]; then
+      print_status "$CYAN" "   npm: v$npm_version"
+    fi
   fi
   
   if ! command -v git &> /dev/null; then
     warnings+=("Git (recommended for version control)")
+  else
+    local git_version=$(git --version | cut -d ' ' -f 3)
+    log_info "Git version: $git_version ✓"
+    if [ "$VERBOSE" = true ]; then
+      print_status "$CYAN" "   Git: v$git_version"
+    fi
   fi
   
   # Check disk space (at least 1GB free)
   local available_space=$(df . | awk 'NR==2 {print $4}')
+  local space_gb=$((available_space / 1048576))
   if [ "$available_space" -lt 1048576 ]; then # 1GB in KB
-    warnings+=("Low disk space (less than 1GB available)")
+    warnings+=("Low disk space (${space_gb}GB available, 1GB+ recommended)")
+  else
+    log_info "Disk space: ${space_gb}GB available ✓"
+    if [ "$VERBOSE" = true ]; then
+      print_status "$CYAN" "   Disk space: ${space_gb}GB available"
+    fi
+  fi
+  
+  # Check internet connectivity
+  if ! ping -c 1 -W 5 registry.npmjs.org &> /dev/null; then
+    missing+=("Internet connection to npm registry")
+  else
+    log_info "Internet connectivity: ✓"
   fi
   
   # Report missing requirements
@@ -151,6 +421,7 @@ check_prerequisites() {
     print_status "$YELLOW" "📋 Installation instructions:"
     print_status "$YELLOW" "  Node.js: https://nodejs.org/"
     print_status "$YELLOW" "  npm: Comes with Node.js"
+    print_status "$YELLOW" "  Git: https://git-scm.com/"
     exit 1
   fi
   
@@ -166,94 +437,47 @@ check_prerequisites() {
   log_info "Prerequisites check completed successfully"
 }
 
-# Enhanced safe package installation with recovery
-safe_npm_install() {
-  local package=$1
-  local max_retries=${2:-$MAX_RETRIES}
-  local retry=0
-  
-  while [ $retry -lt $max_retries ]; do
-    log_info "Installing $package (attempt $((retry + 1))/$max_retries)"
+# STEP 9: Dry run functionality
+show_dry_run_summary() {
+  if [ "$DRY_RUN" = true ]; then
+    print_status "$CYAN" ""
+    print_status "$CYAN" "🔍 DRY RUN MODE - Preview of actions:"
+    print_status "$CYAN" "=================================="
+    print_status "$CYAN" "App Name: $APP_NAME"
+    print_status "$CYAN" "Template: $TEMPLATE"
+    print_status "$CYAN" "Skip Convex: $SKIP_CONVEX"
+    print_status "$CYAN" "Skip Clerk: $SKIP_CLERK"
+    print_status "$CYAN" "Verbose: $VERBOSE"
+    print_status "$CYAN" ""
+    print_status "$CYAN" "Would create:"
+    print_status "$CYAN" "  📁 Directory: $APP_NAME/"
+    print_status "$CYAN" "  📦 Next.js app with TypeScript & Tailwind"
+    print_status "$CYAN" "  🔧 Utility functions and components"
     
-    if npm install "$package" --no-audit --no-fund; then
-      log_info "Successfully installed $package"
-      return 0
+    if [ "$SKIP_CONVEX" = false ]; then
+      print_status "$CYAN" "  ⚡ Convex database setup"
     fi
     
-    retry=$((retry + 1))
+    if [ "$SKIP_CLERK" = false ]; then
+      print_status "$CYAN" "  🔐 Clerk authentication setup"
+    fi
     
-    if [ $retry -lt $max_retries ]; then
-      print_status "$YELLOW" "⚠️  Retry $retry/$max_retries for $package..."
-      
-      # Try different recovery strategies
-      case $retry in
-        1)
-          print_status "$BLUE" "🔄 Trying with --legacy-peer-deps..."
-          if npm install "$package" --legacy-peer-deps --no-audit --no-fund; then
-            log_info "Successfully installed $package with --legacy-peer-deps"
-            return 0
-          fi
-          ;;
-        2)
-          print_status "$BLUE" "🧹 Cleaning cache and retrying..."
-          npm cache clean --force &> /dev/null || true
-          ;;
-      esac
-      
-      sleep $RETRY_DELAY
-    fi
-  done
-  
-  log_error "Failed to install $package after $max_retries attempts"
-  return 1
-}
-
-# Function to verify installation integrity
-verify_installation() {
-  print_status "$BLUE" "🔍 Verifying installation integrity..."
-  
-  local errors=()
-  
-  # Check if package.json exists and is valid
-  if [ ! -f "package.json" ]; then
-    errors+=("package.json not found")
-  else
-    if ! node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))" 2>/dev/null; then
-      errors+=("package.json is invalid")
-    fi
+    case $TEMPLATE in
+      minimal)
+        print_status "$CYAN" "  📋 Minimal template (basic features only)"
+        ;;
+      full)
+        print_status "$CYAN" "  📋 Full template (all features + extras)"
+        ;;
+      *)
+        print_status "$CYAN" "  📋 Default template (standard features)"
+        ;;
+    esac
+    
+    print_status "$CYAN" ""
+    print_status "$CYAN" "💡 Run without --dry-run to execute these actions"
+    exit 0
   fi
-  
-  # Check if node_modules exists
-  if [ ! -d "node_modules" ]; then
-    errors+=("node_modules directory not found")
-  fi
-  
-  # Check if key files were created
-  local required_files=(
-    "src/app/layout.tsx"
-    "src/app/page.tsx"
-    ".env.local"
-    "src/lib/utils.ts"
-  )
-  
-  for file in "${required_files[@]}"; do
-    if [ ! -f "$file" ]; then
-      errors+=("Required file missing: $file")
-    fi
-  done
-  
-  if [ ${#errors[@]} -ne 0 ]; then
-    log_error "Installation verification failed"
-    print_status "$RED" "❌ Installation verification failed:"
-    for error in "${errors[@]}"; do
-      print_status "$RED" "    - $error"
-    done
-    return 1
-  fi
-  
-  print_status "$GREEN" "✅ Installation verification passed"
-  log_info "Installation verification completed successfully"
-  return 0
 }
 
 # Function to print colored output
@@ -263,11 +487,11 @@ print_status() {
   echo -e "${color}${message}${NC}"
 }
 
-# Function to validate app name with enhanced error handling
+# Function to validate app name with enhanced error handling and FORCE option
 validate_app_name() {
   local app_name="$1"
   
-  # Check if app name is provided
+  # Check if app name is provided (this is now handled in parse_arguments)
   if [ -z "$app_name" ]; then
     log_error "No app name provided"
     print_status "$YELLOW" "Usage: $0 <app-name>"
@@ -287,12 +511,21 @@ validate_app_name() {
   
   # Check if directory already exists
   if [ -d "$app_name" ]; then
-    log_error "Directory already exists: $app_name"
-    print_status "$YELLOW" "💡 Solutions:"
-    print_status "$YELLOW" "  1. Choose a different name"
-    print_status "$YELLOW" "  2. Remove the existing directory: rm -rf $app_name"
-    print_status "$YELLOW" "  3. Use a different location"
-    exit 1
+    if [ "$FORCE" = true ]; then
+      log_info "Directory exists but FORCE mode enabled, will overwrite: $app_name"
+      print_status "$YELLOW" "⚠️  Directory '$app_name' exists - FORCE mode enabled"
+      print_status "$BLUE" "🗑️  Removing existing directory..."
+      rm -rf "$app_name"
+      print_status "$GREEN" "✅ Existing directory removed"
+    else
+      log_error "Directory already exists: $app_name"
+      print_status "$YELLOW" "💡 Solutions:"
+      print_status "$YELLOW" "  1. Choose a different name"
+      print_status "$YELLOW" "  2. Use --force to overwrite existing directory"
+      print_status "$YELLOW" "  3. Remove manually: rm -rf $app_name"
+      print_status "$YELLOW" "  4. Use a different location"
+      exit 1
+    fi
   fi
   
   log_info "App name validation passed: $app_name"
@@ -661,7 +894,95 @@ create_config_files() {
   print_status "$GREEN" "✅ All configuration files created successfully"
 }
 
+# Enhanced safe package installation with recovery
+safe_npm_install() {
+  local package=$1
+  local max_retries=${2:-$MAX_RETRIES}
+  local retry=0
+  
+  while [ $retry -lt $max_retries ]; do
+    log_info "Installing $package (attempt $((retry + 1))/$max_retries)"
+    
+    if npm install "$package" --no-audit --no-fund; then
+      log_info "Successfully installed $package"
+      return 0
+    fi
+    
+    retry=$((retry + 1))
+    
+    if [ $retry -lt $max_retries ]; then
+      print_status "$YELLOW" "⚠️  Retry $retry/$max_retries for $package..."
+      
+      # Try different recovery strategies
+      case $retry in
+        1)
+          print_status "$BLUE" "🔄 Trying with --legacy-peer-deps..."
+          if npm install "$package" --legacy-peer-deps --no-audit --no-fund; then
+            log_info "Successfully installed $package with --legacy-peer-deps"
+            return 0
+          fi
+          ;;
+        2)
+          print_status "$BLUE" "🧹 Cleaning cache and retrying..."
+          npm cache clean --force &> /dev/null || true
+          ;;
+      esac
+      
+      sleep $RETRY_DELAY
+    fi
+  done
+  
+  log_error "Failed to install $package after $max_retries attempts"
+  return 1
+}
 
+# Function to verify installation integrity
+verify_installation() {
+  print_status "$BLUE" "🔍 Verifying installation integrity..."
+  
+  local errors=()
+  
+  # Check if package.json exists and is valid
+  if [ ! -f "package.json" ]; then
+    errors+=("package.json not found")
+  else
+    if ! node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))" 2>/dev/null; then
+      errors+=("package.json is invalid")
+    fi
+  fi
+  
+  # Check if node_modules exists
+  if [ ! -d "node_modules" ]; then
+    errors+=("node_modules directory not found")
+  fi
+  
+  # Check if key files were created
+  local required_files=(
+    "src/app/layout.tsx"
+    "src/app/page.tsx"
+    ".env.local"
+    "src/lib/utils.ts"
+  )
+  
+  for file in "${required_files[@]}"; do
+    if [ ! -f "$file" ]; then
+      errors+=("Required file missing: $file")
+    fi
+  done
+  
+  if [ ${#errors[@]} -ne 0 ]; then
+    log_error "Installation verification failed"
+    print_status "$RED" "❌ Installation verification failed:"
+    for error in "${errors[@]}"; do
+      print_status "$RED" "    - $error"
+    done
+    return 1
+  fi
+  
+  print_status "$GREEN" "✅ Installation verification passed"
+  log_info "Installation verification completed successfully"
+  return 0
+}
 
 # STEP 5: Template Substitution Functions
 
@@ -857,6 +1178,105 @@ create_custom_scripts() {
   fi
 }
 
+# STEP 9: Template-specific functionality
+apply_template_customizations() {
+  case $TEMPLATE in
+    minimal)
+      print_status "$BLUE" "📋 Applying minimal template customizations..."
+      # Skip some components for minimal template
+      if [ "$VERBOSE" = true ]; then
+        print_status "$CYAN" "   Minimal template: Skipping advanced components"
+      fi
+      ;;
+    full)
+      print_status "$BLUE" "📋 Applying full template customizations..."
+      # Add extra features for full template
+      if [ "$VERBOSE" = true ]; then
+        print_status "$CYAN" "   Full template: Adding advanced features"
+      fi
+      create_additional_components
+      ;;
+    *)
+      print_status "$BLUE" "📋 Applying default template customizations..."
+      if [ "$VERBOSE" = true ]; then
+        print_status "$CYAN" "   Default template: Standard feature set"
+      fi
+      ;;
+  esac
+}
+
+# Function to create additional components for full template
+create_additional_components() {
+  print_status "$BLUE" "🔧 Creating additional components for full template..."
+  
+  # Create a loading component
+  mkdir -p src/components/ui
+  cat > src/components/ui/loading.tsx << 'EOF'
+import { cn } from "@/lib/utils"
+
+interface LoadingProps {
+  className?: string
+  size?: "sm" | "md" | "lg"
+}
+
+export function Loading({ className, size = "md" }: LoadingProps) {
+  const sizeClasses = {
+    sm: "w-4 h-4",
+    md: "w-6 h-6", 
+    lg: "w-8 h-8"
+  }
+
+  return (
+    <div className={cn("animate-spin rounded-full border-2 border-gray-300 border-t-blue-600", sizeClasses[size], className)} />
+  )
+}
+EOF
+
+  # Create an error boundary component
+  cat > src/components/ui/error-boundary.tsx << 'EOF'
+"use client"
+
+import { Component, ReactNode } from "react"
+
+interface Props {
+  children: ReactNode
+  fallback?: ReactNode
+}
+
+interface State {
+  hasError: boolean
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(): State {
+    return { hasError: true }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <div className="flex items-center justify-center min-h-[200px] p-8">
+          <div className="text-center">
+            <h2 className="text-xl font-semibold text-red-600 mb-2">Something went wrong</h2>
+            <p className="text-gray-600">Please refresh the page and try again.</p>
+          </div>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+EOF
+
+  print_status "$GREEN" "  ✅ Additional components created for full template"
+}
+
 # Function to orchestrate all template substitution
 create_template_files() {
   print_status "$BLUE" "🎯 Creating files with template substitution..."
@@ -865,6 +1285,7 @@ create_template_files() {
   create_home_page
   update_header_component
   create_custom_scripts
+  apply_template_customizations
   
   print_status "$GREEN" "✅ All template files created with personalized content"
 }
@@ -1265,24 +1686,40 @@ show_enhanced_completion_message() {
   print_status "$GREEN" "🎯 Happy coding with $APP_NAME!"
 }
 
-# Main execution function with enhanced error handling and progress tracking
+# Main execution function with enhanced error handling, progress tracking, and portability
 main() {
-  local total_steps=9  # Added verification step
+  local total_steps=10  # Added environment detection step
   local start_time=$(date +%s)
   
   # Initialize logging
-  log_info "Starting Next.js project setup script v2.3"
+  log_info "Starting Next.js project setup script v${SCRIPT_VERSION}"
   log_info "App name: $APP_NAME"
+  log_info "Template: $TEMPLATE"
+  log_info "Options: SKIP_CONVEX=$SKIP_CONVEX, SKIP_CLERK=$SKIP_CLERK, VERBOSE=$VERBOSE, FORCE=$FORCE"
   log_info "Started at: $(date '+%Y-%m-%d %H:%M:%S')"
   
-  print_status "$BLUE" "🚀 Next.js Starter Script v2.3 (Enhanced Error Handling)"
-  print_status "$BLUE" "========================================================="
+  print_status "$BLUE" "🚀 Next.js Starter Script v${SCRIPT_VERSION} (Portable & Professional)"
+  print_status "$BLUE" "=================================================================="
   print_status "$BLUE" "Creating: $APP_NAME"
+  print_status "$BLUE" "Template: $TEMPLATE"
   print_status "$BLUE" "Started at: $(date '+%Y-%m-%d %H:%M:%S')"
   print_status "$BLUE" "Logging to: setup.log"
+  
+  if [ "$VERBOSE" = true ]; then
+    print_status "$CYAN" "🔧 Configuration:"
+    print_status "$CYAN" "   Skip Convex: $SKIP_CONVEX"
+    print_status "$CYAN" "   Skip Clerk: $SKIP_CLERK"
+    print_status "$CYAN" "   Force mode: $FORCE"
+    print_status "$CYAN" "   Verbose: $VERBOSE"
+  fi
+  
   echo ""
   
-  # Run prerequisite checks first
+  # Step 0: Environment Detection
+  detect_environment
+  echo ""
+  
+  # Run prerequisite checks
   check_prerequisites
   
   # Step 1: Network Check
@@ -1339,25 +1776,35 @@ main() {
   fi
   echo ""
   
-  # Step 6: Database Schema
-  step_start=$(date +%s)
-  show_progress 6 $total_steps "📊 Setting up database schema..."
-  if create_convex_schema && create_convex_functions; then
-    local step_duration=$(($(date +%s) - step_start))
-    show_step_complete "Database schema setup" $step_duration
+  # Step 6: Database Schema (conditional)
+  if [ "$SKIP_CONVEX" = false ]; then
+    step_start=$(date +%s)
+    show_progress 6 $total_steps "📊 Setting up database schema..."
+    if create_convex_schema && create_convex_functions; then
+      local step_duration=$(($(date +%s) - step_start))
+      show_step_complete "Database schema setup" $step_duration
+    else
+      handle_step_error 6 "Database schema setup" "Failed to create Convex schema"
+    fi
   else
-    handle_step_error 6 "Database schema setup" "Failed to create Convex schema"
+    show_progress 6 $total_steps "📊 Skipping database schema (--skip-convex)..."
+    print_status "$YELLOW" "  ⏭️  Convex setup skipped as requested"
   fi
   echo ""
   
-  # Step 7: External Tools
-  step_start=$(date +%s)
-  show_progress 7 $total_steps "⚡ Initializing external tools..."
-  if create_convex_config && update_env_with_convex_instructions; then
-    local step_duration=$(($(date +%s) - step_start))
-    show_step_complete "External tools initialization" $step_duration
+  # Step 7: External Tools (conditional)
+  if [ "$SKIP_CONVEX" = false ]; then
+    step_start=$(date +%s)
+    show_progress 7 $total_steps "⚡ Initializing external tools..."
+    if create_convex_config && update_env_with_convex_instructions; then
+      local step_duration=$(($(date +%s) - step_start))
+      show_step_complete "External tools initialization" $step_duration
+    else
+      handle_step_error 7 "External tools initialization" "Failed to initialize tools"
+    fi
   else
-    handle_step_error 7 "External tools initialization" "Failed to initialize tools"
+    show_progress 7 $total_steps "⚡ Skipping external tools (--skip-convex)..."
+    print_status "$YELLOW" "  ⏭️  External tools setup skipped as requested"
   fi
   echo ""
   
@@ -1373,9 +1820,17 @@ main() {
   fi
   echo ""
   
-  # Step 9: Finalization
+  # Step 9: Template-specific features
   step_start=$(date +%s)
-  show_progress 9 $total_steps "✅ Finalizing setup..."
+  show_progress 9 $total_steps "🎨 Applying template customizations..."
+  apply_template_customizations
+  local step_duration=$(($(date +%s) - step_start))
+  show_step_complete "Template customizations" $step_duration
+  echo ""
+  
+  # Step 10: Finalization
+  step_start=$(date +%s)
+  show_progress 10 $total_steps "✅ Finalizing setup..."
   local total_duration=$(($(date +%s) - start_time))
   local minutes=$((total_duration / 60))
   local seconds=$((total_duration % 60))
@@ -1389,16 +1844,14 @@ main() {
   show_enhanced_completion_message
 }
 
-# Script entry point with enhanced error handling
-if [ -z "$1" ]; then
-  log_error "No app name provided"
-  print_status "$RED" "❌ Error: Please provide an app name"
-  print_status "$BLUE" "Usage: $0 <app-name>"
-  print_status "$BLUE" "Example: $0 my-awesome-app"
-  exit 1
-fi
+# STEP 9: Script entry point with portable argument parsing
+# Parse command line arguments first
+parse_arguments "$@"
 
-APP_NAME="$1"
+# Show dry run summary if requested
+show_dry_run_summary
+
+# Validate the app name with new options
 validate_app_name "$APP_NAME"
 
 # Execute the main workflow with comprehensive error handling
