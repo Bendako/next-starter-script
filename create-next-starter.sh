@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# NEXT.JS STARTER SCRIPT v2.4 - Professional Project Generator
+# NEXT.JS STARTER SCRIPT v2.5 - Professional Project Generator
 # ============================================================================
 # 
 # DESCRIPTION:
@@ -9,7 +9,7 @@
 #   project structure, components, and development tools.
 #
 # AUTHOR: Built with ❤️ for developers who value their time
-# VERSION: 2.4
+# VERSION: 2.5
 # CREATED: Following the "Building Your Own Next.js Starter Script" tutorial
 #
 # FEATURES:
@@ -26,15 +26,25 @@
 #   ✅ Dry run mode for previewing
 #   ✅ Force mode for overwriting
 #   ✅ Verbose logging and debugging
+#   ✅ Interactive configuration menu (NEW!)
+#   ✅ Backward compatible with command-line flags
 #
 # USAGE:
+#   # Interactive mode (recommended):
+#   ./create-next-starter.sh my-app
+#   
+#   # Command-line mode (for automation):
 #   ./create-next-starter.sh [OPTIONS] <app-name>
 #   
 # EXAMPLES:
+#   # Interactive guided setup:
 #   ./create-next-starter.sh my-app
-#   ./create-next-starter.sh --verbose --skip-convex my-app
-#   ./create-next-starter.sh --template minimal simple-app
-#   ./create-next-starter.sh --dry-run my-app
+#     → Choose: 1) Default, 2) With Auth, or 3) With Database
+#   
+#   # Command-line with flags:
+#   ./create-next-starter.sh --skip-convex --skip-clerk my-app  # Clean default
+#   ./create-next-starter.sh --skip-convex my-app              # Default + Auth
+#   ./create-next-starter.sh --skip-clerk my-app               # Default + Database
 #
 # REQUIREMENTS:
 #   • Node.js 18+ (https://nodejs.org/)
@@ -56,6 +66,7 @@
 # Step 8: Error Handling and Cleanup ✅
 # Step 9: Making Your Script Portable ✅
 # Step 10: Put It All Together ✅
+# BONUS: Interactive Configuration Menu ✅
 
 # STEP 8 & 9: Script configuration and portability features
 set -e          # Exit on any error
@@ -70,7 +81,7 @@ DRY_RUN=false
 FORCE=false
 TEMPLATE="default"
 NODE_VERSION_MIN=18
-SCRIPT_VERSION="2.4"
+SCRIPT_VERSION="2.5"
 
 # Global variables for cleanup
 CLEANUP_NEEDED=false
@@ -116,12 +127,14 @@ cleanup() {
     print_status "$YELLOW" "🧹 Cleaning up after failed installation..."
     
     # Remove temporary files
-    for temp_file in "${TEMP_FILES[@]}"; do
-      if [ -f "$temp_file" ]; then
-        rm -f "$temp_file"
-        print_status "$YELLOW" "  🗑️  Removed temporary file: $temp_file"
-      fi
-    done
+    if [ ${#TEMP_FILES[@]} -gt 0 ]; then
+      for temp_file in "${TEMP_FILES[@]}"; do
+        if [ -f "$temp_file" ]; then
+          rm -f "$temp_file"
+          print_status "$YELLOW" "  🗑️  Removed temporary file: $temp_file"
+        fi
+      done
+    fi
     
     # Ask user if they want to remove the partially created directory
     if [ -n "${APP_NAME:-}" ] && [ -d "${APP_NAME:-}" ]; then
@@ -175,17 +188,30 @@ show_help() {
 🚀 Next.js Starter Script v${SCRIPT_VERSION} - Professional Project Generator
 
 USAGE:
+  # Interactive mode (recommended for new users):
+  $0 <app-name>
+  
+  # Command-line mode (for automation/scripts):
   $0 [OPTIONS] <app-name>
 
 DESCRIPTION:
-  Create a new Next.js application with TypeScript, Tailwind CSS, Convex database,
-  and Clerk authentication. Includes professional project structure, components,
-  and development tools.
+  Create a new Next.js application with TypeScript, Tailwind CSS, and optionally
+  Convex database or Clerk authentication. Professional project structure with
+  modern development tools.
+
+INTERACTIVE MODE:
+  Simply provide the app name and choose from 4 clear configuration options:
+  1) Default - Next.js + TypeScript + Tailwind (clean start)
+  2) With Auth - Adds Clerk authentication to the default setup
+  3) With Database - Adds Convex real-time database to the default setup
+  4) Full - Includes both Clerk auth and Convex database (full stack)
+  
+  Select options by entering the corresponding number (1-4)
 
 REQUIRED:
   <app-name>           Name for your new application (letters, numbers, hyphens only)
 
-OPTIONS:
+COMMAND-LINE OPTIONS:
   --skip-convex        Skip Convex database setup
   --skip-clerk         Skip Clerk authentication setup
   --verbose            Show detailed output and debug information
@@ -198,16 +224,20 @@ OPTIONS:
   --version, -v        Show script version
 
 TEMPLATES:
-  default              Standard setup with all features
+  default              Standard setup with Next.js, TypeScript, and Tailwind
   minimal              Basic Next.js with TypeScript and Tailwind only
-  full                 Everything + additional tools (Prisma, tRPC, etc.)
+  full                 Everything + additional tools and components
 
 EXAMPLES:
-  $0 my-awesome-app                    # Standard setup
-  $0 --skip-convex my-app              # Without Convex database
-  $0 --verbose --skip-clerk my-app     # Without Clerk, with detailed output
-  $0 --template minimal simple-app     # Minimal template
-  $0 --force --verbose my-app          # Overwrite existing, verbose output
+  # Interactive mode (guided setup with numbered selection):
+  $0 my-awesome-app
+  
+  # Command-line mode (for automation):
+  $0 --skip-convex my-app              # Default without database
+  $0 --skip-clerk my-app               # Default without authentication
+  $0 --skip-convex --skip-clerk my-app # Clean default setup
+  $0 my-app                            # Full stack (with auth and database)
+  $0 --verbose my-app                  # With detailed output
   $0 --dry-run my-app                  # Preview what would be created
 
 REQUIREMENTS:
@@ -236,19 +266,250 @@ Features:
 • Professional project structure
 • Comprehensive error handling
 • Progress tracking & logging
+• Interactive numbered selection
 
 Built with ❤️  for developers who value their time.
 EOF
 }
 
-# STEP 9.1: Parse command line options
+# Function to display a selection menu (simplified approach)
+show_selection_menu() {
+  local options=("$@")
+  local num_options=${#options[@]}
+  
+  # Display all options with numbers
+  for i in "${!options[@]}"; do
+    option_num=$((i + 1))
+    printf "  ${BLUE}%d) %s${NC}\n" "$option_num" "${options[$i]}"
+  done
+  echo ""
+  
+  # Get user selection
+  while true; do
+    printf "${YELLOW}Choose an option (1-$num_options) or press Enter for default [1]: ${NC}"
+    read -r choice </dev/tty
+    
+    # Default to 1 if empty
+    choice=${choice:-1}
+    
+    # Validate input
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$num_options" ]; then
+      echo $((choice - 1))  # Return 0-based index
+      return
+    else
+      print_status "$RED" "Invalid choice. Please enter a number between 1 and $num_options."
+    fi
+  done
+}
+
+# STEP 9.1: Interactive option selection with arrow key navigation
+show_interactive_menu() {
+  print_status "$CYAN" "🎛️  Let's configure your Next.js project!"
+  print_status "$BLUE" ""
+  
+  # Configuration options
+  local config_options=(
+    "Default - Next.js + TypeScript + Tailwind (no auth, no database)"
+    "With Auth - Includes Clerk authentication + all default features"
+    "With Database - Includes Convex database + all default features"
+    "Full - Includes both Clerk auth and Convex database + all features"
+  )
+  
+  # Main configuration choice with arrow key navigation
+  print_status "$PURPLE" "📋 Choose your project configuration:"
+  echo ""
+  local selected_config
+  selected_config=0  # Temporarily defaulting to first option
+  
+  case $selected_config in
+    0) 
+      TEMPLATE="default"
+      SKIP_CONVEX=true
+      SKIP_CLERK=true
+      print_status "$GREEN" "✅ Configuration: Default (Next.js + TypeScript + Tailwind)"
+      ;;
+    1) 
+      TEMPLATE="default"
+      SKIP_CONVEX=true
+      SKIP_CLERK=false
+      print_status "$GREEN" "✅ Configuration: With Auth (Clerk authentication included)"
+      ;;
+    2) 
+      TEMPLATE="default"
+      SKIP_CONVEX=false
+      SKIP_CLERK=true
+      print_status "$GREEN" "✅ Configuration: With Database (Convex database included)"
+      ;;
+    3) 
+      TEMPLATE="default"
+      SKIP_CONVEX=false
+      SKIP_CLERK=false
+      print_status "$GREEN" "✅ Configuration: Full (Clerk auth + Convex database included)"
+      ;;
+    *) 
+      print_status "$YELLOW" "Invalid selection, using default configuration"
+      TEMPLATE="default"
+      SKIP_CONVEX=true
+      SKIP_CLERK=true
+      ;;
+  esac
+  
+  log_info "Configuration selected: Template=$TEMPLATE, SKIP_CONVEX=$SKIP_CONVEX, SKIP_CLERK=$SKIP_CLERK"
+  echo ""
+
+  # Output verbosity options
+  local verbose_options=(
+    "Standard - Normal output with progress indicators"
+    "Verbose - Detailed output and debug information"
+  )
+  
+  print_status "$PURPLE" "📝 Choose output verbosity:"
+  echo ""
+  local selected_verbose
+  selected_verbose=0  # Temporarily defaulting to first option
+  
+  case $selected_verbose in
+    0) VERBOSE=false ;;
+    1) VERBOSE=true ;;
+    *) 
+      print_status "$YELLOW" "Invalid selection, using standard output"
+      VERBOSE=false
+      ;;
+  esac
+  log_info "Verbose mode: $([ "$VERBOSE" = true ] && echo "enabled" || echo "disabled")"
+  print_status "$GREEN" "✅ Output: $([ "$VERBOSE" = true ] && echo "Verbose" || echo "Standard")"
+  echo ""
+
+  # Execution mode options
+  local execution_options=(
+    "Execute - Create the project now"
+    "Preview - Show what would be done (dry run)"
+  )
+  
+  print_status "$PURPLE" "🔍 Execution mode:"
+  echo ""
+  local selected_execution
+  selected_execution=0  # Temporarily defaulting to first option
+  
+  case $selected_execution in
+    0) DRY_RUN=false ;;
+    1) DRY_RUN=true ;;
+    *) 
+      print_status "$YELLOW" "Invalid selection, executing normally"
+      DRY_RUN=false
+      ;;
+  esac
+  log_info "Execution mode: $([ "$DRY_RUN" = true ] && echo "dry run" || echo "execute")"
+  print_status "$GREEN" "✅ Mode: $([ "$DRY_RUN" = true ] && echo "Preview" || echo "Execute")"
+  echo ""
+
+  # Force mode (only ask if directory exists)
+  if [ -d "$APP_NAME" ]; then
+    local force_options=(
+      "Cancel - Don't overwrite existing directory"
+      "Overwrite - Remove existing directory and continue"
+    )
+    
+    print_status "$PURPLE" "⚠️  Directory '$APP_NAME' already exists:"
+    echo ""
+    local selected_force
+    selected_force=0  # Temporarily defaulting to first option
+    
+    case $selected_force in
+      0) 
+        print_status "$YELLOW" "Operation cancelled to preserve existing directory"
+        exit 0
+        ;;
+      1) FORCE=true ;;
+      *) 
+        print_status "$YELLOW" "Invalid selection, cancelling to be safe"
+        exit 0
+        ;;
+    esac
+    log_info "Force mode: enabled (overwrite existing)"
+    print_status "$GREEN" "✅ Action: Overwrite existing directory"
+    echo ""
+  fi
+
+  # Summary of selections
+  print_status "$CYAN" "📋 Configuration Summary:"
+  print_status "$BLUE" "  📁 Project: $APP_NAME"
+  
+  # Show configuration description
+  local config_desc=""
+  if [ "$SKIP_CONVEX" = true ] && [ "$SKIP_CLERK" = true ]; then
+    config_desc="Default (Next.js + TypeScript + Tailwind)"
+  elif [ "$SKIP_CONVEX" = true ] && [ "$SKIP_CLERK" = false ]; then
+    config_desc="With Auth (includes Clerk authentication)"
+  elif [ "$SKIP_CONVEX" = false ] && [ "$SKIP_CLERK" = true ]; then
+    config_desc="With Database (includes Convex database)"
+  else
+    config_desc="Full Stack (includes both Clerk auth and Convex database)"
+  fi
+  
+  print_status "$BLUE" "  ⚙️  Configuration: $config_desc"
+  print_status "$BLUE" "  📝 Output: $([ "$VERBOSE" = true ] && echo "Verbose" || echo "Standard")"
+  print_status "$BLUE" "  🔍 Mode: $([ "$DRY_RUN" = true ] && echo "Preview" || echo "Execute")"
+  [ "$FORCE" = true ] && print_status "$BLUE" "  ⚠️  Action: Overwrite existing"
+  echo ""
+  
+  if [ "$DRY_RUN" = false ]; then
+    local confirm_options=(
+      "Yes - Continue with project creation"
+      "No - Cancel and exit"
+    )
+    
+    print_status "$PURPLE" "🚀 Ready to create your project!"
+    echo ""
+    local selected_confirm
+    selected_confirm=0  # Temporarily defaulting to first option
+    
+    case $selected_confirm in
+      0) 
+        print_status "$GREEN" "✅ Starting project creation..."
+        ;;
+      1) 
+        print_status "$YELLOW" "Operation cancelled by user"
+        exit 0
+        ;;
+      *) 
+        print_status "$YELLOW" "Invalid selection, cancelling to be safe"
+        exit 0
+        ;;
+    esac
+  else
+    print_status "$CYAN" "🔍 Preview mode - showing what would be created..."
+  fi
+  echo ""
+}
+
+# STEP 9.1: Parse command line options (updated to support both flags and interactive mode)
 parse_arguments() {
+  local interactive_mode=true
+  
   # If no arguments provided, show help
   if [ $# -eq 0 ]; then
     show_help
     exit 0
   fi
 
+  # Check if any flags are provided (non-interactive mode)
+  for arg in "$@"; do
+    if [[ $arg == --* ]]; then
+      interactive_mode=false
+      break
+    fi
+  done
+
+  # If only app name provided and no flags, use interactive mode
+  if [ $# -eq 1 ] && [[ $1 != --* ]]; then
+    APP_NAME="$1"
+    log_info "App name set to: $APP_NAME (interactive mode)"
+    show_interactive_menu
+    return
+  fi
+
+  # Original flag parsing for non-interactive mode
   while [[ $# -gt 0 ]]; do
     case $1 in
       --skip-convex)
@@ -715,16 +976,24 @@ install_dependencies() {
 
   print_status "$BLUE" "📦 Installing additional dependencies..."
 
-  # List of packages to install
+  # Build list of packages to install based on skip flags
   local packages=(
-    "convex"
-    "@clerk/nextjs"
     "@radix-ui/react-icons"
     "lucide-react"
     "class-variance-authority"
     "clsx"
     "tailwind-merge"
   )
+  
+  # Add Convex if not skipped
+  if [ "$SKIP_CONVEX" = false ]; then
+    packages+=("convex")
+  fi
+  
+  # Add Clerk if not skipped
+  if [ "$SKIP_CLERK" = false ]; then
+    packages+=("@clerk/nextjs")
+  fi
 
   local failed_packages=()
   local installed_count=0
@@ -766,10 +1035,24 @@ create_env_file() {
   print_status "$BLUE" "📄 Creating environment configuration file..."
   
   cat > .env.local << EOF
+# Environment Variables for $APP_NAME
+# Add your environment variables here
+
+EOF
+
+  # Add Convex configuration if not skipped
+  if [ "$SKIP_CONVEX" = false ]; then
+    cat >> .env.local << EOF
 # Convex Configuration
 CONVEX_DEPLOYMENT=
 NEXT_PUBLIC_CONVEX_URL=
 
+EOF
+  fi
+
+  # Add Clerk configuration if not skipped
+  if [ "$SKIP_CLERK" = false ]; then
+    cat >> .env.local << EOF
 # Clerk Authentication
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
@@ -778,6 +1061,10 @@ NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
 NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
 
+EOF
+  fi
+
+  cat >> .env.local << EOF
 # Add your other environment variables here
 EOF
 
@@ -842,13 +1129,20 @@ create_convex_provider() {
 import { ReactNode } from "react";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 
-const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+// Only create Convex client if URL is provided
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
 
 export default function ConvexClientProvider({
   children,
 }: {
   children: ReactNode;
 }) {
+  // If no Convex URL is configured, just render children without provider
+  if (!convex) {
+    return <>{children}</>;
+  }
+
   return <ConvexProvider client={convex}>{children}</ConvexProvider>;
 }
 EOF
@@ -920,24 +1214,46 @@ export { Button, buttonVariants }
 EOF
 
   # Create a basic Header component
-  cat > src/components/layout/header.tsx << 'EOF'
-import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
-import { Button } from '@/components/ui/button'
-
-export default function Header() {
-  return (
-    <header className="border-b">
-      <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-        <h1 className="text-2xl font-bold">My App</h1>
-        <div>
-          <SignedOut>
+  local header_imports="import { Button } from '@/components/ui/button'"
+  local header_auth_section=""
+  
+  if [ "$SKIP_CLERK" = false ]; then
+    header_imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+$header_imports"
+    header_auth_section="          <SignedOut>
             <SignInButton>
-              <Button>Sign In</Button>
+              <Button variant=\"outline\">Sign In</Button>
             </SignInButton>
           </SignedOut>
           <SignedIn>
-            <UserButton />
-          </SignedIn>
+            <div className=\"flex items-center gap-3\">
+              <span className=\"text-sm text-gray-600\">Welcome back!</span>
+              <UserButton />
+            </div>
+          </SignedIn>"
+  else
+    header_auth_section="          <Button variant=\"outline\">
+            Get Started
+          </Button>"
+  fi
+  
+  cat > src/components/layout/header.tsx << EOF
+$header_imports
+
+export default function Header() {
+  return (
+    <header className="border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+      <div className="container mx-auto px-4 py-4 flex justify-between items-center">
+        <div className="flex items-center space-x-2">
+          <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-sm">A</span>
+          </div>
+          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            My App
+          </h1>
+        </div>
+        <div>
+$header_auth_section
         </div>
       </div>
     </header>
@@ -954,10 +1270,172 @@ create_config_files() {
   
   create_env_file
   create_utils_file
-  create_convex_provider
+  
+  # Only create Convex provider if not skipped
+  if [ "$SKIP_CONVEX" = false ]; then
+    create_convex_provider
+  fi
+  
+  # Only create Clerk middleware if not skipped
+  if [ "$SKIP_CLERK" = false ]; then
+    create_clerk_middleware
+  fi
+  
   create_components_structure
+  create_status_components
   
   print_status "$GREEN" "✅ All configuration files created successfully"
+}
+
+# Function to create status indicator components
+create_status_components() {
+  print_status "$BLUE" "🎨 Creating status indicator components..."
+  
+  # Create the config detector utility first
+  cat > src/lib/config-detector.ts << 'EOF'
+export interface ServiceConfig {
+  hasClerk: boolean;
+  hasConvex: boolean;
+  clerkPublishableKey?: string;
+  convexUrl?: string;
+}
+
+export function detectClerkConfig(): boolean {
+  if (typeof window !== 'undefined') {
+    return !!(
+      process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
+      (window as any).__CLERK_PUBLISHABLE_KEY
+    );
+  }
+  
+  return !!(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+    process.env.CLERK_SECRET_KEY
+  );
+}
+
+export function detectConvexConfig(): boolean {
+  return !!(
+    process.env.NEXT_PUBLIC_CONVEX_URL ||
+    process.env.CONVEX_DEPLOYMENT
+  );
+}
+
+export function getServiceConfig(): ServiceConfig {
+  const hasClerk = detectClerkConfig();
+  const hasConvex = detectConvexConfig();
+  
+  return {
+    hasClerk,
+    hasConvex,
+    clerkPublishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    convexUrl: process.env.NEXT_PUBLIC_CONVEX_URL,
+  };
+}
+
+export function getMissingServices(): string[] {
+  const config = getServiceConfig();
+  const missing: string[] = [];
+  
+  if (!config.hasClerk) {
+    missing.push('Clerk Authentication');
+  }
+  
+  if (!config.hasConvex) {
+    missing.push('Convex Database');
+  }
+  
+  return missing;
+}
+
+export function isFullyConfigured(): boolean {
+  const config = getServiceConfig();
+  return config.hasClerk && config.hasConvex;
+}
+EOF
+
+  # Create the status banner component
+  cat > src/components/ui/status-banner.tsx << 'EOF'
+'use client';
+
+interface StatusBannerProps {
+  hasClerk?: boolean;
+  hasConvex?: boolean;
+  className?: string;
+}
+
+export default function StatusBanner({ hasClerk = false, hasConvex = false, className = '' }: StatusBannerProps) {
+  const missingServices: string[] = [];
+  if (!hasClerk) missingServices.push('Authentication (Clerk)');
+  if (!hasConvex) missingServices.push('Database (Convex)');
+
+  if (missingServices.length === 0) {
+    return (
+      <div className={`bg-green-50 border border-green-200 rounded-lg p-4 mb-6 ${className}`}>
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-5 text-green-600">✅</div>
+          <div>
+            <h3 className="text-sm font-medium text-green-800">All Services Configured</h3>
+            <p className="text-sm text-green-700">Your application is fully set up with authentication and database.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 ${className}`}>
+      <div className="flex items-start gap-3">
+        <div className="h-5 w-5 text-amber-600 mt-0.5">⚠️</div>
+        <div className="flex-1">
+          <h3 className="text-sm font-medium text-amber-800">Configuration Required</h3>
+          <p className="text-sm text-amber-700 mb-3">
+            The following services need to be configured to unlock full functionality:
+          </p>
+          <div className="space-y-2">
+            {!hasClerk && (
+              <div className="flex items-center gap-2 text-sm">
+                <div className="h-4 w-4 text-amber-600">🔐</div>
+                <span className="text-amber-800">Authentication (Clerk) - User sign-in/sign-up</span>
+              </div>
+            )}
+            {!hasConvex && (
+              <div className="flex items-center gap-2 text-sm">
+                <div className="h-4 w-4 text-amber-600">🗄️</div>
+                <span className="text-amber-800">Database (Convex) - Real-time data storage</span>
+              </div>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {!hasClerk && (
+              <a
+                href="https://clerk.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center px-3 py-1 rounded-md text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors"
+              >
+                Set up Clerk
+              </a>
+            )}
+            {!hasConvex && (
+              <a
+                href="https://convex.dev"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center px-3 py-1 rounded-md text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors"
+              >
+                Set up Convex
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+EOF
+
+  print_status "$GREEN" "  ✅ Status indicator components created"
 }
 
 # Enhanced safe package installation with recovery
@@ -1056,19 +1534,62 @@ verify_installation() {
 create_layout_file() {
   print_status "$BLUE" "🎨 Creating root layout with app branding..."
   
+  # Build imports based on what's enabled
+  local imports="import type { Metadata } from \"next\";
+import { Inter } from \"next/font/google\";
+import \"./globals.css\";"
+  
+  if [ "$SKIP_CLERK" = false ]; then
+    imports="$imports
+import { ClerkProvider } from '@clerk/nextjs'"
+  fi
+  
+  if [ "$SKIP_CONVEX" = false ]; then
+    imports="$imports
+import ConvexClientProvider from './ConvexClientProvider'"
+  fi
+  
+  # Build keywords based on what's enabled
+  local keywords="\"Next.js\", \"React\", \"TypeScript\""
+  if [ "$SKIP_CONVEX" = false ]; then
+    keywords="$keywords, \"Convex\""
+  fi
+  if [ "$SKIP_CLERK" = false ]; then
+    keywords="$keywords, \"Clerk\""
+  fi
+  keywords="$keywords, \"$APP_NAME\""
+  
+  # Build the layout JSX based on what's enabled
+  local layout_content="    <html lang=\"en\">
+      <body className={inter.className}>"
+  
+  if [ "$SKIP_CONVEX" = false ]; then
+    layout_content="$layout_content
+        <ConvexClientProvider>"
+  fi
+  
+  layout_content="$layout_content
+        {children}"
+  
+  if [ "$SKIP_CONVEX" = false ]; then
+    layout_content="$layout_content
+        </ConvexClientProvider>"
+  fi
+  
+  layout_content="$layout_content
+      </body>
+    </html>"
+  
+  # Create the complete layout file
   cat > src/app/layout.tsx << EOF
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-import { ClerkProvider } from '@clerk/nextjs'
-import ConvexClientProvider from './ConvexClientProvider'
+$imports
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "$APP_NAME",
   description: "A modern web application built with Next.js, powered by $APP_NAME",
-  keywords: ["Next.js", "React", "TypeScript", "Convex", "Clerk", "$APP_NAME"],
+  keywords: [$keywords],
 };
 
 export default function RootLayout({
@@ -1077,15 +1598,29 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
+EOF
+
+  # Add ClerkProvider wrapper if Clerk is enabled
+  if [ "$SKIP_CLERK" = false ]; then
+    cat >> src/app/layout.tsx << EOF
     <ClerkProvider>
-      <html lang="en">
-        <body className={inter.className}>
-          <ConvexClientProvider>
-            {children}
-          </ConvexClientProvider>
-        </body>
-      </html>
+EOF
+  fi
+
+  # Add the layout content
+  cat >> src/app/layout.tsx << EOF
+$layout_content
+EOF
+
+  # Close ClerkProvider if Clerk is enabled
+  if [ "$SKIP_CLERK" = false ]; then
+    cat >> src/app/layout.tsx << EOF
     </ClerkProvider>
+EOF
+  fi
+
+  # Close the function
+  cat >> src/app/layout.tsx << EOF
   );
 }
 EOF
@@ -1097,56 +1632,142 @@ EOF
 create_home_page() {
   print_status "$BLUE" "🏠 Creating personalized home page..."
   
+  # Build imports based on what's enabled
+  local imports="import { Button } from '@/components/ui/button'
+import StatusBanner from '@/components/ui/status-banner'
+import { getServiceConfig } from '@/lib/config-detector'"
+  if [ "$SKIP_CLERK" = false ]; then
+    imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+$imports"
+  fi
+  
+  # Build description based on what's enabled
+  local description="Your modern web application is ready to go! Built with Next.js, TypeScript"
+  if [ "$SKIP_CONVEX" = false ] && [ "$SKIP_CLERK" = false ]; then
+    description="$description, and the latest tools."
+  elif [ "$SKIP_CONVEX" = false ] || [ "$SKIP_CLERK" = false ]; then
+    description="$description, and Tailwind CSS."
+  else
+    description="$description, and Tailwind CSS."
+  fi
+  
+  # Build action buttons based on what's enabled
+  local action_buttons=""
+  if [ "$SKIP_CLERK" = false ]; then
+    action_buttons="            <SignedOut>
+              <SignInButton>
+                <Button size=\"lg\" className=\"bg-blue-600 hover:bg-blue-700\">
+                  Get Started - Sign In
+                </Button>
+              </SignInButton>
+            </SignedOut>
+            <SignedIn>
+              <div className=\"flex items-center gap-4\">
+                <span className=\"text-green-600 font-medium\">✅ You're signed in!</span>
+                <UserButton />
+              </div>
+            </SignedIn>"
+  else
+    action_buttons="            <Button size=\"lg\" className=\"bg-blue-600 hover:bg-blue-700\">
+              Get Started
+            </Button>
+            <Button variant=\"outline\" size=\"lg\">
+              Learn More
+            </Button>"
+  fi
+  
+  # Build feature grid based on what's enabled
+  local feature_grid=""
+  if [ "$SKIP_CONVEX" = false ]; then
+    feature_grid="$feature_grid            <div className=\"p-4 border rounded-lg\">
+              <h3 className=\"font-semibold text-blue-600\">⚡ Convex</h3>
+              <p className=\"text-sm text-gray-600\">Real-time database</p>
+            </div>"
+  else
+    feature_grid="$feature_grid            <div className=\"p-4 border rounded-lg\">
+              <h3 className=\"font-semibold text-blue-600\">⚡ Next.js</h3>
+              <p className=\"text-sm text-gray-600\">React framework</p>
+            </div>"
+  fi
+  
+  if [ "$SKIP_CLERK" = false ]; then
+    feature_grid="$feature_grid
+            <div className=\"p-4 border rounded-lg\">
+              <h3 className=\"font-semibold text-purple-600\">🔐 Clerk</h3>
+              <p className=\"text-sm text-gray-600\">Authentication</p>
+            </div>"
+  else
+    feature_grid="$feature_grid
+            <div className=\"p-4 border rounded-lg\">
+              <h3 className=\"font-semibold text-purple-600\">📘 TypeScript</h3>
+              <p className=\"text-sm text-gray-600\">Type safety</p>
+            </div>"
+  fi
+  
+  feature_grid="$feature_grid
+            <div className=\"p-4 border rounded-lg\">
+              <h3 className=\"font-semibold text-green-600\">🎨 Tailwind</h3>
+              <p className=\"text-sm text-gray-600\">Styling</p>
+            </div>
+            <div className=\"p-4 border rounded-lg\">
+              <h3 className=\"font-semibold text-orange-600\">⚛️ React</h3>
+              <p className=\"text-sm text-gray-600\">UI Framework</p>
+            </div>"
+  
+  # Build final description based on what's enabled
+  local final_description="Your application comes pre-configured with "
+  local features=()
+  if [ "$SKIP_CLERK" = false ]; then
+    features+=("authentication")
+  fi
+  if [ "$SKIP_CONVEX" = false ]; then
+    features+=("real-time database")
+  fi
+  features+=("TypeScript" "Tailwind CSS" "modern UI components")
+  
+  # Join features with commas and "and"
+  if [ ${#features[@]} -eq 1 ]; then
+    final_description="$final_description${features[0]}."
+  elif [ ${#features[@]} -eq 2 ]; then
+    final_description="$final_description${features[0]} and ${features[1]}."
+  else
+    local last_index=$((${#features[@]} - 1))
+    local last_feature="${features[$last_index]}"
+    unset features[$last_index]
+    final_description="$final_description$(IFS=', '; echo "${features[*]}"), and $last_feature."
+  fi
+  final_description="$final_description Start building your features right away!"
+  
   cat > src/app/page.tsx << EOF
-import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
-import { Button } from '@/components/ui/button'
+$imports
 
 export default function Home() {
+  const config = getServiceConfig();
+  
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24">
+      <StatusBanner 
+        hasClerk={config.hasClerk} 
+        hasConvex={config.hasConvex} 
+        className="w-full max-w-4xl mb-8"
+      />
+      
       <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
         <div className="text-center lg:text-left">
           <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
             Welcome to $APP_NAME
           </h1>
           <p className="text-lg text-gray-600 dark:text-gray-300 mb-8">
-            Your modern web application is ready to go! Built with Next.js, TypeScript, and the latest tools.
+            $description
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-            <SignedOut>
-              <SignInButton>
-                <Button size="lg" className="bg-blue-600 hover:bg-blue-700">
-                  Get Started - Sign In
-                </Button>
-              </SignInButton>
-            </SignedOut>
-            <SignedIn>
-              <div className="flex items-center gap-4">
-                <span className="text-green-600 font-medium">✅ You're signed in!</span>
-                <UserButton />
-              </div>
-            </SignedIn>
+$action_buttons
           </div>
         </div>
         
         <div className="mt-8 lg:mt-0">
           <div className="grid grid-cols-2 gap-4 text-center">
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold text-blue-600">⚡ Convex</h3>
-              <p className="text-sm text-gray-600">Real-time database</p>
-            </div>
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold text-purple-600">🔐 Clerk</h3>
-              <p className="text-sm text-gray-600">Authentication</p>
-            </div>
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold text-green-600">🎨 Tailwind</h3>
-              <p className="text-sm text-gray-600">Styling</p>
-            </div>
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold text-orange-600">⚛️ React</h3>
-              <p className="text-sm text-gray-600">UI Framework</p>
-            </div>
+$feature_grid
           </div>
         </div>
       </div>
@@ -1154,8 +1775,7 @@ export default function Home() {
       <div className="mt-16 text-center">
         <h2 className="text-2xl font-semibold mb-4">Ready to build with $APP_NAME?</h2>
         <p className="text-gray-600 dark:text-gray-300 max-w-2xl">
-          Your application comes pre-configured with authentication, real-time database, 
-          and modern UI components. Start building your features right away!
+          $final_description
         </p>
       </div>
     </main>
@@ -1217,23 +1837,45 @@ create_custom_scripts() {
     # Create a backup
     cp package.json package.json.backup
     
+    # Build description based on what's enabled
+    local description_parts=("Next.js")
+    if [ "$SKIP_CONVEX" = false ]; then
+      description_parts+=("Convex")
+    fi
+    if [ "$SKIP_CLERK" = false ]; then
+      description_parts+=("Clerk")
+    fi
+    description_parts+=("TypeScript" "Tailwind CSS")
+    
+    local description="A modern web application: $APP_NAME - built with $(IFS=', '; echo "${description_parts[*]}")"
+    
+    # Build scripts based on what's enabled
+    local convex_scripts=""
+    if [ "$SKIP_CONVEX" = false ]; then
+      convex_scripts="'setup:convex': 'npx convex dev --once',
+        'deploy:$APP_NAME': 'npm run build && npx convex deploy',"
+    fi
+    
     # Use node to modify package.json with app-specific scripts
     node -e "
       const fs = require('fs');
       const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
       
       // Add custom scripts with app name
-      pkg.scripts = {
-        ...pkg.scripts,
-        'dev:$APP_NAME': 'next dev',
-        'build:$APP_NAME': 'next build',
-        'start:$APP_NAME': 'next start',
-        'setup:convex': 'npx convex dev --once',
-        'deploy:$APP_NAME': 'npm run build && npx convex deploy'
+      const newScripts = {
+        ...pkg.scripts
       };
       
-      // Update description with app name
-      pkg.description = 'A modern web application: $APP_NAME - built with Next.js, Convex, and Clerk';
+      // Add Convex scripts only if not skipped
+      if ('$SKIP_CONVEX' === 'false') {
+        newScripts['setup:convex'] = 'npx convex dev --once';
+        newScripts['deploy:$APP_NAME'] = 'npm run build && npx convex deploy';
+      }
+      
+      pkg.scripts = newScripts;
+      
+      // Update description with app name and enabled features
+      pkg.description = '$description';
       
       fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
     "
@@ -1619,6 +2261,41 @@ update_env_with_convex_instructions() {
 EOF
 
   print_status "$GREEN" "  ✅ Convex setup instructions added to .env.local"
+}
+
+# Function to create Clerk middleware
+create_clerk_middleware() {
+  print_status "$BLUE" "🔐 Creating Clerk middleware..."
+  
+  cat > src/middleware.ts << 'EOF'
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+
+// Define public routes that don't require authentication
+const isPublicRoute = createRouteMatcher([
+  '/',
+  '/sign-in(.*)',
+  '/sign-up(.*)',
+  '/api/webhooks(.*)'
+])
+
+export default clerkMiddleware(async (auth, request) => {
+  // Protect all routes that are not public
+  if (!isPublicRoute(request)) {
+    await auth.protect()
+  }
+})
+
+export const config = {
+  matcher: [
+    // Skip Next.js internals and all static files, unless found in search params
+    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // Always run for API routes
+    '/(api|trpc)(.*)',
+  ]
+}
+EOF
+
+  print_status "$GREEN" "  ✅ Clerk middleware (src/middleware.ts) created"
 }
 
 # Function to orchestrate all external tools initialization
