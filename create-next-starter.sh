@@ -1304,7 +1304,7 @@ export function detectClerkConfig(): boolean {
   if (typeof window !== 'undefined') {
     return !!(
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-      (window as any).__CLERK_PUBLISHABLE_KEY
+      (window as Record<string, unknown>).__CLERK_PUBLISHABLE_KEY
     );
   }
   
@@ -1790,9 +1790,32 @@ EOF
 update_header_component() {
   print_status "$BLUE" "🔄 Updating header component with app branding..."
   
+  # Build imports based on what's enabled
+  local header_imports="import { Button } from '@/components/ui/button'"
+  local header_auth_section=""
+  
+  if [ "$SKIP_CLERK" = false ]; then
+    header_imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+$header_imports"
+    header_auth_section="          <SignedOut>
+            <SignInButton>
+              <Button variant=\"outline\">Sign In</Button>
+            </SignInButton>
+          </SignedOut>
+          <SignedIn>
+            <div className=\"flex items-center gap-3\">
+              <span className=\"text-sm text-gray-600\">Welcome back!</span>
+              <UserButton />
+            </div>
+          </SignedIn>"
+  else
+    header_auth_section="          <Button variant=\"outline\">
+            Get Started
+          </Button>"
+  fi
+  
   cat > src/components/layout/header.tsx << EOF
-import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
-import { Button } from '@/components/ui/button'
+$header_imports
 
 export default function Header() {
   return (
@@ -1807,17 +1830,7 @@ export default function Header() {
           </h1>
         </div>
         <div>
-          <SignedOut>
-            <SignInButton>
-              <Button variant="outline">Sign In</Button>
-            </SignInButton>
-          </SignedOut>
-          <SignedIn>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-600">Welcome back!</span>
-              <UserButton />
-            </div>
-          </SignedIn>
+$header_auth_section
         </div>
       </div>
     </header>
