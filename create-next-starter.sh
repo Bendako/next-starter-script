@@ -1304,7 +1304,7 @@ export function detectClerkConfig(): boolean {
   if (typeof window !== 'undefined') {
     return !!(
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-      (window as Record<string, unknown>).__CLERK_PUBLISHABLE_KEY
+      (window as unknown as Record<string, unknown>).__CLERK_PUBLISHABLE_KEY
     );
   }
   
