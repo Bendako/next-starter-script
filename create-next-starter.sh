@@ -1633,9 +1633,15 @@ create_home_page() {
   print_status "$BLUE" "🏠 Creating personalized home page..."
   
   # Build imports based on what's enabled
-  local imports="import { Button } from '@/components/ui/button'
+  local imports="import { Button } from '@/components/ui/button'"
+  
+  # Only include status banner and config detector if at least one service is enabled
+  if [ "$SKIP_CLERK" = false ] || [ "$SKIP_CONVEX" = false ]; then
+    imports="$imports
 import StatusBanner from '@/components/ui/status-banner'
 import { getServiceConfig } from '@/lib/config-detector'"
+  fi
+  
   if [ "$SKIP_CLERK" = false ]; then
     imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
 $imports"
@@ -1738,19 +1744,28 @@ $imports"
   fi
   final_description="$final_description Start building your features right away!"
   
+  # Build the page content conditionally
+  local status_banner_section=""
+  local config_usage=""
+  
+  if [ "$SKIP_CLERK" = false ] || [ "$SKIP_CONVEX" = false ]; then
+    config_usage="  const config = getServiceConfig();"
+    status_banner_section="      <StatusBanner 
+        hasClerk={config.hasClerk} 
+        hasConvex={config.hasConvex} 
+        className=\"w-full max-w-4xl mb-8\"
+      />"
+  fi
+
   cat > src/app/page.tsx << EOF
 $imports
 
 export default function Home() {
-  const config = getServiceConfig();
+$config_usage
   
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24">
-      <StatusBanner 
-        hasClerk={config.hasClerk} 
-        hasConvex={config.hasConvex} 
-        className="w-full max-w-4xl mb-8"
-      />
+$status_banner_section
       
       <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
         <div className="text-center lg:text-left">
