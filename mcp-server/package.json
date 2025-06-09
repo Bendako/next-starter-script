@@ -1,0 +1,39 @@
+{
+  "name": "nextjs-starter-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for creating Next.js applications with the create-next-starter.sh script",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "nextjs-starter-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist",
+    "prepublish": "npm run build"
+  },
+  "keywords": [
+    "nextjs",
+    "mcp",
+    "claude",
+    "starter",
+    "template",
+    "convex",
+    "clerk"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+} 

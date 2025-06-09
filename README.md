@@ -1,225 +1,183 @@
-# Next.js Starter Script 🚀
+# Next.js Starter Script Repository 🚀
 
-A **production-ready** bash script that automates creating Next.js applications with TypeScript, Tailwind CSS, Convex database, and Clerk authentication. This script eliminates hours of manual setup and provides a professional foundation for modern web applications.
+A powerful bash script for creating professional Next.js applications with TypeScript, Tailwind CSS, Convex database, and Clerk authentication options. Now includes an MCP server for Claude Desktop integration!
 
-## What This Repository Contains 📁
+## What's Inside 📦
 
 This repository contains:
-- **`create-next-starter.sh`** - The main bash script (2700+ lines)
-- **Documentation** - README, examples, and usage guides
-- **Version control** - Git history showing development progression
 
-## Quick Start 🏃‍♂️
+1. **`create-next-starter.sh`** - A comprehensive 2700+ line bash script that automates the creation of professional Next.js applications
+2. **`mcp-server/`** - An MCP (Model Context Protocol) server that brings the script's power to Claude Desktop
+
+## The Script: `create-next-starter.sh` ⚡
+
+### Features
+
+- **🔧 Professional Setup** - TypeScript, Tailwind CSS, ESLint with optimal configurations
+- **⚡ Real-time Database** - Optional Convex integration with schemas and real-time subscriptions
+- **🔐 Authentication** - Optional Clerk integration with middleware and protected routes
+- **📋 Multiple Templates** - Choose from minimal, default, or full feature sets
+- **🧪 Comprehensive Testing** - Built-in validation and testing modes
+- **📖 Excellent Documentation** - Detailed help and examples
+
+### Quick Start
 
 ```bash
-# Clone this repository
-git clone <repository-url>
-cd next-starter
-
 # Make the script executable
 chmod +x create-next-starter.sh
 
-# Create a new Next.js app with interactive setup
+# Create a new Next.js app with all features
 ./create-next-starter.sh my-awesome-app
 
-# Or use command-line flags for automation
-./create-next-starter.sh --skip-clerk my-app-with-database
-./create-next-starter.sh --skip-convex my-app-with-auth
+# Create a minimal app without database/auth
+./create-next-starter.sh --skip-convex --skip-clerk --template minimal my-simple-app
+
+# Preview what would be created (dry run)
+./create-next-starter.sh --dry-run my-test-app
+
+# Get comprehensive help
+./create-next-starter.sh --help
 ```
 
-## What the Script Creates 🏗️
+### Script Options
 
-When you run the script, it creates a **complete Next.js application** with:
+- `--skip-convex` - Skip Convex database setup
+- `--skip-clerk` - Skip Clerk authentication setup  
+- `--template <type>` - Choose template: `default`, `minimal`, `full`
+- `--dry-run` - Preview what would be created
+- `--verbose` - Show detailed output
+- `--force` - Overwrite existing directory
+- `--test` - Test script integrity
+- `--help` - Show detailed help
 
-### Core Stack
+## MCP Server for Claude Desktop 🤖
+
+The `mcp-server/` directory contains an MCP server that brings the script's power directly into Claude Desktop conversations.
+
+### Quick Setup
+
+```bash
+# Install and build the MCP server
+cd mcp-server
+npm install
+npm run build
+
+# Add to Claude Desktop config
+# macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "nextjs-starter": {
+      "command": "node",
+      "args": ["/absolute/path/to/next-starter/mcp-server/dist/index.js"]
+    }
+  }
+}
+```
+
+### Usage in Claude
+
+Once configured, you can ask Claude to:
+
+> "Create a new Next.js app called 'my-blog' with authentication but without database"
+
+> "Show me what would be created for a minimal dashboard app"
+
+> "Test the script integrity"
+
+See `mcp-server/README.md` for detailed MCP server documentation.
+
+## Project Structure 📁
+
+```
+next-starter/
+├── create-next-starter.sh          # Main bash script (2700+ lines)
+├── README.md                       # This documentation
+├── .gitignore                      # Git ignore rules
+├── mcp-server/                     # MCP server for Claude Desktop
+│   ├── src/index.ts                # MCP server implementation
+│   ├── package.json                # MCP dependencies
+│   ├── tsconfig.json               # TypeScript config
+│   ├── README.md                   # MCP documentation
+│   └── dist/                       # Built MCP server (generated)
+└── docs/                           # Additional documentation
+    ├── script-output-example.md    # Example script output
+    └── mcp-examples.md             # MCP usage examples
+```
+
+## What Gets Created 🏗️
+
+When you run the script, it creates a professional Next.js application with:
+
+### Base Features (Always Included)
 - **Next.js 14+** with App Router
-- **TypeScript** for type safety
-- **Tailwind CSS** for styling
-- **ESLint** for code quality
+- **TypeScript** with strict configuration
+- **Tailwind CSS** with custom configuration
+- **ESLint** with comprehensive rules
+- **Professional file structure** with organized components, utils, and types
 
 ### Optional Features
-- **Convex** - Real-time database (unless `--skip-convex`)
-- **Clerk** - Authentication system (unless `--skip-clerk`)
+- **Convex Database** - Real-time database with schemas, queries, mutations
+- **Clerk Authentication** - Complete auth system with middleware and protected routes
+- **Template Variations** - Minimal, default, or full feature sets
 
-### Professional Structure
+### Example Generated Structure
 ```
-your-app/
-├── src/
-│   ├── app/
-│   │   ├── layout.tsx          # Root layout with providers
-│   │   ├── page.tsx            # Home page with auth status
-│   │   └── globals.css         # Global styles
-│   ├── components/
-│   │   └── ui/
-│   │       ├── button.tsx      # Reusable button component
-│   │       ├── header.tsx      # Navigation header
-│   │       └── status-banner.tsx # Configuration status
-│   ├── lib/
-│   │   ├── utils.ts            # Utility functions
-│   │   └── config-detector.ts  # Service configuration
-│   └── middleware.ts           # Clerk middleware (if enabled)
-├── convex/                     # Database schema (if enabled)
-├── .env.local                  # Environment variables
-├── package.json               # Dependencies and scripts
-└── tsconfig.json              # TypeScript configuration
+my-app/
+├── app/                   # Next.js App Router
+├── components/           # Reusable React components  
+├── convex/              # Convex database (if enabled)
+├── lib/                 # Utility functions
+├── types/               # TypeScript type definitions
+├── public/              # Static assets
+├── tailwind.config.js   # Tailwind configuration
+├── tsconfig.json        # TypeScript configuration
+└── package.json         # Dependencies and scripts
 ```
-
-## Script Features ✨
-
-### Interactive Setup
-- **Guided Configuration** - Choose your stack interactively
-- **Template Options** - Minimal, default, or full setup
-- **Real-time Feedback** - Progress bars and status updates
-
-### Command Line Options
-```bash
-./create-next-starter.sh [OPTIONS] <app-name>
-
-OPTIONS:
-  --skip-convex        Skip Convex database setup
-  --skip-clerk         Skip Clerk authentication setup
-  --template TYPE      Choose template: minimal, default, full
-  --verbose            Show detailed output
-  --dry-run            Preview without creating
-  --force              Overwrite existing directory
-  --test               Run script validation
-  --help, -h           Show this help
-  --version, -v        Show version info
-```
-
-### Production-Ready Features
-- **Error Handling** - Comprehensive error recovery and cleanup
-- **Network Resilience** - Retry logic for package installations
-- **Multi-Platform** - Works on macOS, Linux, and Windows
-- **Logging** - Detailed logs for troubleshooting
-- **Validation** - Input validation and prerequisite checks
-
-## Usage Examples 💡
-
-### Interactive Mode (Recommended)
-```bash
-./create-next-starter.sh blog-app
-# Prompts you to choose:
-# 1) Clean Next.js (no database, no auth)
-# 2) With Authentication (Clerk)
-# 3) With Database (Convex)
-# 4) Full Stack (Both Convex + Clerk)
-```
-
-### Command Line Mode
-```bash
-# Clean Next.js app
-./create-next-starter.sh --skip-convex --skip-clerk simple-app
-
-# App with authentication only
-./create-next-starter.sh --skip-convex auth-app
-
-# App with database only
-./create-next-starter.sh --skip-clerk data-app
-
-# Full-stack app (default)
-./create-next-starter.sh full-app
-```
-
-### Advanced Usage
-```bash
-# Preview what would be created
-./create-next-starter.sh --dry-run my-app
-
-# Verbose output for debugging
-./create-next-starter.sh --verbose my-app
-
-# Force overwrite existing directory
-./create-next-starter.sh --force existing-app
-
-# Test script integrity
-./create-next-starter.sh --test
-```
-
-## Dependencies Created 📦
-
-The script installs these packages automatically:
-
-### Core Dependencies
-- `next` - React framework
-- `react` & `react-dom` - React library
-- `typescript` & `@types/*` - Type definitions
-- `tailwindcss` - CSS framework
-- `eslint` - Code linting
-
-### Optional Dependencies (based on configuration)
-- `convex` - Real-time database
-- `@clerk/nextjs` - Authentication
-- `@radix-ui/react-icons` - Icon library
-- `lucide-react` - Additional icons
-- `class-variance-authority` - Component variants
-- `clsx` & `tailwind-merge` - Utility functions
 
 ## Requirements 📋
 
-- **Node.js 18+** (https://nodejs.org/)
-- **npm** (comes with Node.js)
+- **Bash** (macOS/Linux) or WSL (Windows)
+- **Node.js** 18+ and npm
+- **Git** for version control
 - **Internet connection** for package downloads
-- **1GB+ free disk space**
-- **Bash shell** (macOS/Linux/Windows WSL)
 
-## Development & Tutorial 👨‍💻
+## Examples 💡
 
-This script was built following a comprehensive tutorial structure that covers:
-
-1. **Basic Bash Scripting** - Fundamentals and structure
-2. **User Input Handling** - Validation and error checking
-3. **NPM Automation** - Package installation and setup
-4. **File Manipulation** - Creating and editing files
-5. **Template System** - Dynamic content generation
-6. **External Tool Integration** - Convex and Clerk setup
-7. **User Experience** - Progress indicators and feedback
-8. **Error Handling** - Recovery and cleanup
-9. **Portability** - Cross-platform compatibility
-10. **Integration** - Putting it all together
-
-### Script Statistics
-- **2700+ lines** of production-ready bash code
-- **50+ functions** with comprehensive error handling
-- **Interactive configuration** with fallback to CLI
-- **Multi-platform support** (macOS, Linux, Windows)
-- **Professional logging** and progress tracking
-
-## Troubleshooting 🔧
-
-### Common Issues
+### Create a Full-Featured App
 ```bash
-# Permission denied
-chmod +x create-next-starter.sh
-
-# Node.js too old
-node --version  # Should be 18+
-
-# NPM cache issues
-npm cache clean --force
-
-# Network problems
-./create-next-starter.sh --verbose my-app  # See detailed logs
+./create-next-starter.sh my-saas-app
+# Includes: TypeScript, Tailwind, Convex DB, Clerk auth, full template
 ```
 
-### Error Recovery
-The script includes automatic cleanup on failure:
-- Removes temporary files
-- Optionally removes partial installations
-- Provides detailed error logs in `setup-error.log`
-- Suggests troubleshooting steps
+### Create a Simple Blog
+```bash
+./create-next-starter.sh --skip-convex --skip-clerk --template minimal my-blog
+# Includes: TypeScript, Tailwind, minimal features
+```
+
+### Preview Before Creating
+```bash
+./create-next-starter.sh --dry-run my-test-app
+# Shows what would be created without actually creating it
+```
+
+## Why Use This Script? 🎯
+
+1. **Time Savings** - Skip hours of boilerplate setup
+2. **Best Practices** - Configurations follow industry standards
+3. **Consistency** - Every project starts with the same solid foundation
+4. **Flexibility** - Choose only the features you need
+5. **Professional Quality** - Production-ready code from day one
+6. **Claude Integration** - Use directly from Claude Desktop with MCP server
 
 ## Contributing 🤝
 
-1. Fork the repository
-2. Review the script structure and comments
-3. Test changes with `./create-next-starter.sh --test`
-4. Submit pull request with detailed description
+This script represents thousands of hours of Next.js development experience distilled into a single, powerful automation tool. Contributions, suggestions, and feedback are welcome!
 
 ## License 📄
 
-MIT License - Use this script freely in your projects!
+MIT License - Use freely in your projects!
 
 ---
 
-**🎯 Ready to build amazing Next.js applications!** This script eliminates setup friction and provides a professional foundation for your projects. Give it a star ⭐ if it saves you time! 
+**🚀 Ready to build amazing Next.js applications?** Whether you use the script directly or through Claude Desktop, you'll have a professional foundation in minutes instead of hours. 

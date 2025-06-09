@@ -107,7 +107,8 @@ NC='\033[0m' # No Color
 log_error() {
   local message="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$timestamp] ERROR: $message" >> "setup-error.log"
+  # Try to write to log file, but don't fail if we can't
+  echo "[$timestamp] ERROR: $message" >> "setup-error.log" 2>/dev/null || true
   print_status "$RED" "❌ $message"
 }
 
@@ -115,7 +116,8 @@ log_error() {
 log_info() {
   local message="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[$timestamp] INFO: $message" >> "setup.log"
+  # Try to write to log file, but don't fail if we can't
+  echo "[$timestamp] INFO: $message" >> "setup.log" 2>/dev/null || true
 }
 
 # Comprehensive cleanup function
@@ -157,12 +159,12 @@ cleanup() {
     print_status "$YELLOW" "  1. Check your internet connection"
     print_status "$YELLOW" "  2. Ensure you have the latest Node.js and npm"
     print_status "$YELLOW" "  3. Try running: npm cache clean --force"
-    print_status "$YELLOW" "  4. Check the error log: setup-error.log"
+    print_status "$YELLOW" "  4. Check the error log (if available): setup-error.log"
     print_status "$YELLOW" "  5. Try running the script again"
     
   elif [ $exit_code -eq 0 ]; then
-    # Successful completion - clean up logs
-    [ -f "setup-error.log" ] && rm -f "setup-error.log"
+    # Successful completion - clean up logs if they exist and we can write to them
+    [ -f "setup-error.log" ] && rm -f "setup-error.log" 2>/dev/null || true
     print_status "$GREEN" "🎉 Setup completed successfully!"
   fi
   
@@ -2474,7 +2476,7 @@ main() {
   print_status "$BLUE" "Creating: $APP_NAME"
   print_status "$BLUE" "Template: $TEMPLATE"
   print_status "$BLUE" "Started at: $(date '+%Y-%m-%d %H:%M:%S')"
-  print_status "$BLUE" "Logging to: setup.log"
+      print_status "$BLUE" "Logging to: setup.log (if writable)"
   
   if [ "$VERBOSE" = true ]; then
     print_status "$CYAN" "🔧 Configuration:"
@@ -2735,5 +2737,5 @@ main_execution "$@"
 if [ "$VERBOSE" = true ]; then
   echo ""
   echo "🎯 Script execution completed at: $(date '+%Y-%m-%d %H:%M:%S')"
-  echo "📊 Check setup.log for detailed execution log"
+  echo "📊 Check setup.log for detailed execution log (if available)"
 fi 
