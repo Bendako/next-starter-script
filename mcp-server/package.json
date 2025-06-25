@@ -18,13 +18,28 @@
     "nextjs",
     "mcp",
     "claude",
+    "claude-desktop",
     "starter",
     "template",
     "convex",
-    "clerk"
+    "clerk",
+    "typescript",
+    "tailwindcss",
+    "automation",
+    "boilerplate",
+    "ai-tools"
   ],
   "author": "Your Name",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/next-starter.git",
+    "directory": "mcp-server"
+  },
+  "homepage": "https://github.com/yourusername/next-starter#readme",
+  "bugs": {
+    "url": "https://github.com/yourusername/next-starter/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.4.0"
   },
