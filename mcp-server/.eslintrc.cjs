@@ -1,8 +1,9 @@
 module.exports = {
   parser: '@typescript-eslint/parser',
+  plugins: ['@typescript-eslint'],
   extends: [
-    '@typescript-eslint/recommended',
     'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
   ],
   parserOptions: {
     ecmaVersion: 2020,
@@ -19,4 +20,5 @@ module.exports = {
     node: true,
     es6: true,
   },
+  ignorePatterns: ['dist/', 'node_modules/'],
 }; 
