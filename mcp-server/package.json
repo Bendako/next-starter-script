@@ -12,7 +12,10 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "clean": "rm -rf dist",
-    "prepublish": "npm run build"
+    "prepublish": "npm run build",
+    "test": "npm run build && node dist/index.js --help",
+    "lint": "npx eslint src/",
+    "watch": "tsc --watch"
   },
   "keywords": [
     "nextjs",
@@ -45,10 +48,17 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ]
 } 

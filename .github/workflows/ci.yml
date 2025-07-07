@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-script:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node-version: [18, 20, 21]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        
+    - name: Make script executable
+      run: chmod +x create-next-starter.sh
+      
+    - name: Test script self-check
+      run: ./create-next-starter.sh --test
+      
+    - name: Test help command
+      run: ./create-next-starter.sh --help
+      
+    - name: Test dry run
+      run: ./create-next-starter.sh --dry-run test-app
+
+  test-mcp-server:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        
+    - name: Install MCP dependencies
+      working-directory: ./mcp-server
+      run: npm ci
+      
+    - name: Lint MCP server
+      working-directory: ./mcp-server
+      run: npm run lint
+      
+    - name: Build MCP server
+      working-directory: ./mcp-server
+      run: npm run build
+      
+    - name: Test MCP server
+      working-directory: ./mcp-server
+      run: npm test 
