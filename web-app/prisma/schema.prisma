@@ -1,0 +1,184 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  firstName String?
+  lastName  String?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Subscription information
+  subscription Subscription?
+  
+  // Projects created by this user
+  projects Project[]
+  
+  // Usage tracking
+  usage UserUsage?
+  
+  // Templates created by this user
+  templates Template[]
+  
+  @@map("users")
+}
+
+model Subscription {
+  id                String             @id @default(cuid())
+  userId            String             @unique
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  stripeCustomerId      String?        @unique
+  stripeSubscriptionId  String?        @unique
+  stripePriceId         String?
+  
+  status            SubscriptionStatus @default(FREE)
+  tier              SubscriptionTier   @default(FREE)
+  
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean           @default(false)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("subscriptions")
+}
+
+model UserUsage {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  projectsCreatedThisMonth Int @default(0)
+  templatesDownloaded      Int @default(0)
+  apiCallsThisMonth        Int @default(0)
+  
+  lastResetDate DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@map("user_usage")
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String
+  description String?
+  templateId  String
+  template    Template      @relation(fields: [templateId], references: [id])
+  
+  config      Json          // Project configuration (template options, integrations, etc.)
+  status      ProjectStatus @default(PENDING)
+  
+  downloadUrl String?
+  downloadExpiresAt DateTime?
+  
+  generationStartedAt DateTime?
+  generationCompletedAt DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("projects")
+}
+
+model Template {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String
+  category    String
+  
+  // Template metadata (stored as JSON strings for SQLite compatibility)
+  features    String // JSON string of array
+  tags        String // JSON string of array
+  version     String   @default("1.0.0")
+  
+  // Pricing
+  isFree      Boolean  @default(true)
+  price       Float?   // Price in cents
+  
+  // Template configuration
+  config      Json     // Template configuration schema
+  
+  // Author information
+  authorId    String?
+  author      User?    @relation(fields: [authorId], references: [id])
+  
+  // Status and visibility
+  isPublished Boolean  @default(false)
+  isPopular   Boolean  @default(false)
+  
+  // Usage statistics
+  downloadCount Int    @default(0)
+  rating        Float? 
+  ratingCount   Int    @default(0)
+  
+  // Projects using this template
+  projects    Project[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("templates")
+}
+
+model TemplateReview {
+  id         String @id @default(cuid())
+  templateId String
+  userId     String
+  
+  rating     Int    // 1-5 stars
+  comment    String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([templateId, userId])
+  @@map("template_reviews")
+}
+
+enum SubscriptionStatus {
+  FREE
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  TRIALING
+  UNPAID
+}
+
+enum SubscriptionTier {
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
+enum ProjectStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
