@@ -126,6 +126,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     console.log(`Subscription created/updated for user ${userId} with plan ${plan}`);
   } catch (error) {
     console.error('Error handling checkout completed:', error);
+    // Propagate database failures so Stripe can retry delivery instead of receiving a false 200.
+    throw error;
   }
 }
 
@@ -151,6 +153,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     console.log(`Subscription updated for user ${userId}`);
   } catch (error) {
     console.error('Error handling subscription updated:', error);
+    // Propagate database failures so Stripe can retry delivery instead of receiving a false 200.
+    throw error;
   }
 }
 
@@ -174,6 +178,8 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     console.log(`Subscription canceled for user ${userId}`);
   } catch (error) {
     console.error('Error handling subscription deleted:', error);
+    // Propagate database failures so Stripe can retry delivery instead of receiving a false 200.
+    throw error;
   }
 }
 

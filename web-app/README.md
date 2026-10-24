@@ -1,3 +1,30 @@
+> [!WARNING]
+> **Legacy prototype — not ready for public deployment.** The Express generator
+> historically accepted a caller-supplied `userId`, the React generator uses
+> a test identity, and the Prisma subscription implementation does not match
+> `prisma/schema.prisma`. The Stripe webhook needs a separate schema-aligned,
+> idempotent fulfillment implementation.
+>
+> In this branch, project generation is **disabled by default** and **always
+> disabled in production**. To test the old generator locally, run the Express
+> server with `NODE_ENV=development ALLOW_UNSAFE_LOCAL_GENERATOR=1` and connect
+> from loopback. **Never expose this development override on a public host.**
+> Checkout is disabled unless `LEGACY_BILLING_ENABLED=1`; **do not set it**
+> before fixing the database mapping and webhook lifecycle. If enabling after
+> those fixes, configure server-owned `STRIPE_PRICE_PROFESSIONAL_MONTHLY`,
+> `STRIPE_PRICE_TEAM_MONTHLY`, `STRIPE_PRICE_ENTERPRISE_MONTHLY`,
+> `STRIPE_SECRET_KEY`, and a trusted `APP_URL`.
+>
+> API rewrites now proxy only the Express generator/templates/health routes;
+> Next.js' own `/api/projects`, `/api/subscription` and `/api/stripe`
+> routes are no longer caught by the overbroad rewrite if unmatched. Existing
+> static Next routes already take precedence over array rewrites. The project-record route checks Clerk
+> authentication, so the old Express-to-Next POST without a session will
+> not record usage until a secure backend-to-backend flow is implemented.
+>
+> The repository root's MCP server and the newer `hosted/` work are separate
+> from this legacy web prototype.
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

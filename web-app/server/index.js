@@ -11,6 +11,7 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs-extra');
 const path = require('path');
 const { spawn } = require('child_process');
+const { canUseLegacyGenerator } = require('./security.cjs');
 const archiver = require('archiver');
 require('dotenv').config();
 
@@ -22,7 +23,7 @@ const wss = new WebSocketServer({ server });
 // Configuration
 const PORT = process.env.PORT || 3001;
 const TEMP_DIR = path.join(__dirname, '../temp');
-const CLI_SCRIPT_PATH = path.join(__dirname, '../../../create-next-starter.sh');
+const CLI_SCRIPT_PATH = path.join(__dirname, '../../create-next-starter.sh');
 
 // Ensure temp directory exists
 fs.ensureDirSync(TEMP_DIR);
@@ -180,6 +181,14 @@ app.get('/api/templates', (req, res) => {
 
 // Generate project endpoint
 app.post('/api/project/generate', async (req, res) => {
+  // The legacy API has no server-side identity or entitlement verification.
+  // Reject public requests rather than trusting a caller-supplied userId.
+  if (!canUseLegacyGenerator(process.env, req.socket.remoteAddress)) {
+    return res.status(503).json({
+      error: 'Legacy project generation is disabled until server-side authentication is implemented',
+    });
+  }
+
   try {
     // Rate limiting
     const clientIP = req.ip || req.connection.remoteAddress;
