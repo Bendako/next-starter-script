@@ -89,7 +89,14 @@ export function createHostedMcpHandler(options: HostedMcpOptions = {}): (request
                     isError: true,
                   };
                 }
-                if (!decision.caller || convexCredentialSelected(decision.caller)) {
+                // Generation requires a trusted backend identity. Read-only
+                // tools (help and dry-run) do not persist jobs or artifacts.
+                // Do not accidentally allow generation while this integration
+                // still uses the placeholder Convex server credential.
+                if (
+                  name === 'create_nextjs_app' &&
+                  (!decision.caller || !convexCredentialSelected(decision.caller))
+                ) {
                   return {
                     content: [{ type: 'text', text: CREDENTIAL_NOT_SELECTED }],
                     isError: true,
