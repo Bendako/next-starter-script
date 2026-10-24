@@ -235,7 +235,7 @@ Check the console for error messages and script execution details.
 
 ## Hosted mode
 
-Set `NEXT_STARTER_MCP_HOSTED=1` (or `true`) before starting the server when callers are not trusted. The server then omits `directory` and `force` from `tools/list` and rejects those arguments. New projects are written under a directory the server chooses inside the system temp folder. Leave the variable unset for local stdio. Local callers can still pass `directory` and `force`.
+Set `NEXT_STARTER_MCP_HOSTED=1` (or `true`) before starting the server when callers are not trusted. The server then omits `directory` and `force` from `tools/list` and rejects those arguments. Each hosted create request receives a unique working directory inside the system temp folder, even when different callers choose the same project name. The server does not delete these workspaces automatically; a hosted deployment must clean up completed and failed jobs. Leave the variable unset for local stdio. Invalid nonempty values (for example `tru`) make the server fail to start rather than silently enable local-only filesystem options. Local callers can still pass `directory` and `force`.
 
 ## License 📄
 
