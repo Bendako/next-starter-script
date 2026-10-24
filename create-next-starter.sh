@@ -3158,7 +3158,7 @@ PY
       printf '{"private":true}\n' > "$stub_dir/project/package.json"
       printf 'registry = http://127.0.0.1:%s/ ; comment\n' "$port" > "$stub_dir/project/.npmrc"
       local project_registry
-      project_registry=$(cd "$stub_dir/project/src" && NPM_CONFIG_REGISTRY='' npm_config_registry='' configured_registry) || project_registry=""
+      project_registry=$(cd "$stub_dir/project/src" && unset NPM_CONFIG_REGISTRY npm_config_registry && configured_registry) || project_registry=""
       if [ "$project_registry" != "http://127.0.0.1:$port/" ]; then
         print_status "$RED" "  ❌ Project .npmrc resolution failed"
         test_failures=$((test_failures + 1))
@@ -3168,7 +3168,7 @@ PY
 
       printf 'registry=http://127.0.0.1:%s/private\n' "$port" > "$stub_dir/custom.npmrc"
       local custom_registry
-      custom_registry=$(NPM_CONFIG_USERCONFIG="$stub_dir/custom.npmrc" NPM_CONFIG_REGISTRY='' npm_config_registry='' configured_registry) || custom_registry=""
+      custom_registry=$(cd "$stub_dir" && unset NPM_CONFIG_REGISTRY npm_config_registry && NPM_CONFIG_USERCONFIG="$stub_dir/custom.npmrc" configured_registry) || custom_registry=""
       if [ "$custom_registry" != "http://127.0.0.1:$port/private" ]; then
         print_status "$RED" "  ❌ NPM_CONFIG_USERCONFIG registry not honored"
         test_failures=$((test_failures + 1))
