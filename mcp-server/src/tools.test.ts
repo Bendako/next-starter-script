@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
@@ -15,6 +16,11 @@ import {
   type ServerConfig,
 } from './tools.js';
 
+const require = createRequire(import.meta.url);
+const validateNpmPackageName = require('validate-npm-package-name') as (name: string) => {
+  validForNewPackages: boolean;
+};
+
 const localConfig: ServerConfig = { mode: 'local' };
 
 const injectionNames = [
@@ -27,6 +33,11 @@ const injectionNames = [
   'a;rm',
   'my_app',
   '_hidden',
+  'MyApp',
+  'A1',
+  '-rf',
+  '--test',
+  '--force',
   'a'.repeat(215),
   'a'.repeat(10_000),
 ];
@@ -164,7 +175,7 @@ describe('hosted mode', () => {
       assert.deepEqual(runner.calls, [
         {
           cwd: outputRoot,
-          args: ['--skip-convex', '--skip-clerk', '--template', 'minimal', 'my-app'],
+          args: ['--skip-convex', '--skip-clerk', '--template', 'minimal', '--', 'my-app'],
         },
       ]);
       assert.equal(runner.calls[0].args.includes('--force'), false);
@@ -184,22 +195,17 @@ describe('local mode', () => {
     assert.ok(create.inputSchema.properties.directory);
     assert.ok(create.inputSchema.properties.force);
     assert.deepEqual(create.inputSchema.required, ['name']);
+    const nameSchema = create.inputSchema.properties.name as { pattern?: string };
+    assert.equal(nameSchema.pattern, '^[a-z0-9][a-z0-9-]*$');
   });
 
-  test('accepts MyApp and rejects my_app', async () => {
+  test('rejects MyApp and flag-like names before the script runs', async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-local-case-'));
     try {
-      const runner = recordingRunner();
-      const accepted = await dispatchTool({
-        name: 'create_nextjs_app',
-        args: { name: 'MyApp', directory },
-        config: localConfig,
-        run: runner.run,
-      });
-      assert.equal(accepted.isError, undefined);
-      assert.equal(runner.calls[0]?.args.at(-1), 'MyApp');
-      await expectRejected('create_nextjs_app', { name: 'my_app', directory }, localConfig);
-      await expectRejected('dry_run', { name: 'my_app' }, localConfig);
+      for (const name of ['MyApp', '-rf', '--test', '--force', 'my_app']) {
+        await expectRejected('create_nextjs_app', { name, directory }, localConfig);
+        await expectRejected('dry_run', { name }, localConfig);
+      }
     } finally {
       await fs.rm(directory, { recursive: true, force: true });
     }
@@ -219,6 +225,7 @@ describe('local mode', () => {
       assert.equal(result.isError, undefined);
       assert.equal(runner.calls.length, 1);
       assert.equal(runner.calls[0].args.at(-1), name);
+      assert.equal(runner.calls[0].args.at(-2), '--');
       assert.equal(runner.calls[0].cwd, directory);
     } finally {
       await fs.rm(directory, { recursive: true, force: true });
@@ -247,7 +254,7 @@ describe('local mode', () => {
       assert.deepEqual(runner.calls, [
         {
           cwd: directory,
-          args: ['--skip-convex', '--template', 'full', '--verbose', '--force', 'my-app'],
+          args: ['--skip-convex', '--template', 'full', '--verbose', '--force', '--', 'my-app'],
         },
       ]);
       assert.match(result.content[0].text, /Successfully created Next.js app: my-app/);
@@ -283,7 +290,7 @@ describe('local mode', () => {
     assert.deepEqual(
       runner.calls.map((call) => call.args),
       [
-        ['--dry-run', '--skip-clerk', '--template', 'minimal', 'my-app'],
+        ['--dry-run', '--skip-clerk', '--template', 'minimal', '--', 'my-app'],
         ['--test'],
         ['--help'],
       ],
@@ -313,47 +320,83 @@ describe('server config', () => {
   });
 });
 
-describe('name rules match the script', () => {
-  const names = [
-    'my-app',
-    'MyApp',
-    'my_app',
-    'a',
-    'A1',
-    '9lives',
-    'a-b',
-    'a;rm',
-    'a; rm -rf ~',
-    '$(id)',
-    '`id`',
-    '../etc',
-    'foo\nbar',
-    '-rf',
-    'app',
-    'a'.repeat(214),
-    'a'.repeat(215),
-    'a'.repeat(10_000),
-  ];
+const acceptedNames = ['my-app', 'a', '9lives', 'a-b', 'app', 'a'.repeat(214)];
 
-  for (const name of names) {
-    test(`server and validate_app_name agree on ${JSON.stringify(name)}`, async () => {
-      const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-name-agree-'));
-      try {
-        const scriptAccepts = await scriptAcceptsName(name);
-        const runner = recordingRunner();
-        const result = await dispatchTool({
-          name: 'create_nextjs_app',
-          args: { name, directory },
-          config: localConfig,
-          run: runner.run,
-        });
-        const serverAccepts = result.isError !== true && runner.calls.length === 1;
-        assert.equal(serverAccepts, scriptAccepts, JSON.stringify(name));
-      } finally {
-        await fs.rm(directory, { recursive: true, force: true });
-      }
+const rejectedNames = [
+  'MyApp',
+  'myApp',
+  'A1',
+  '-rf',
+  '--test',
+  '--force',
+  '-h',
+  '_hidden',
+  'a;rm',
+  'a; rm -rf ~',
+  '$(id)',
+  '`id`',
+  '../etc',
+  'foo\nbar',
+  'a'.repeat(215),
+  'a'.repeat(10_000),
+];
+
+describe('name rules match the script', () => {
+  for (const name of acceptedNames) {
+    test(`server and validate_app_name accept ${JSON.stringify(name)}`, async () => {
+      assert.equal(await scriptAcceptsName(name), true);
+      assert.equal(await serverAcceptsName(name), true);
     });
   }
+
+  for (const name of rejectedNames) {
+    test(`server and validate_app_name reject ${JSON.stringify(name)}`, async () => {
+      assert.equal(await scriptAcceptsName(name), false);
+      assert.equal(await serverAcceptsName(name), false);
+    });
+  }
+
+  test('validate-npm-package-name agrees on the same names', () => {
+    for (const name of acceptedNames) {
+      assert.equal(validateNpmPackageName(name).validForNewPackages, true, JSON.stringify(name));
+    }
+    for (const name of rejectedNames) {
+      assert.equal(validateNpmPackageName(name).validForNewPackages, false, JSON.stringify(name));
+    }
+  });
+
+  test('server and validate_app_name reject underscores', async () => {
+    for (const name of ['my_app', 'app_name']) {
+      assert.equal(await scriptAcceptsName(name), false);
+      assert.equal(await serverAcceptsName(name), false);
+    }
+  });
+
+  test('the script rejects flag-like names before it creates a directory', async () => {
+    const scriptPath = repoScriptPath();
+    const names = ['MyApp', '-rf', '--test', '--force'];
+    for (const name of names) {
+      await assertScriptLeavesNoProject(scriptPath, ['--', name]);
+      await assertScriptLeavesNoProject(scriptPath, ['--dry-run', '--', name]);
+      await assertScriptLeavesNoProject(scriptPath, ['--skip-convex', '--skip-clerk', '--', name]);
+    }
+  });
+
+  test('script --test still runs the self-test', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-script-self-test-'));
+    try {
+      const result = spawnSync('bash', [repoScriptPath(), '--test'], {
+        cwd: directory,
+        encoding: 'utf8',
+        timeout: 20_000,
+      });
+      assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+      assert.match(`${result.stdout}`, /Script is ready to use/);
+      assert.deepEqual(await projectEntries(directory), []);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('script runner', () => {
@@ -370,13 +413,13 @@ describe('script runner', () => {
     }
   });
 
-  test('passes PATH, HOME, and TMPDIR and drops other env', async () => {
+  test('passes PATH, HOME, TMPDIR, proxy vars, and NODE_EXTRA_CA_CERTS', async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-env-'));
     const scriptPath = path.join(directory, 'print-env.sh');
     try {
       await fs.writeFile(
         scriptPath,
-        '#!/bin/bash\nprintf "PATH=%s\\nHOME=%s\\nTMPDIR=%s\\nNODE_ENV=%s\\nSECRET=%s\\nNPM_TOKEN=%s\\n" "$PATH" "$HOME" "$TMPDIR" "$NODE_ENV" "${SECRET-unset}" "${NPM_TOKEN-unset}"\n',
+        '#!/bin/bash\nprintf "PATH=%s\\nHOME=%s\\nTMPDIR=%s\\nNODE_ENV=%s\\nHTTP_PROXY=%s\\nHTTPS_PROXY=%s\\nNO_PROXY=%s\\nhttp_proxy=%s\\nhttps_proxy=%s\\nno_proxy=%s\\nNODE_EXTRA_CA_CERTS=%s\\nSECRET=%s\\nNPM_TOKEN=%s\\n" "$PATH" "$HOME" "$TMPDIR" "$NODE_ENV" "${HTTP_PROXY-unset}" "${HTTPS_PROXY-unset}" "${NO_PROXY-unset}" "${http_proxy-unset}" "${https_proxy-unset}" "${no_proxy-unset}" "${NODE_EXTRA_CA_CERTS-unset}" "${SECRET-unset}" "${NPM_TOKEN-unset}"\n',
       );
       const output = await runScript(
         scriptPath,
@@ -385,17 +428,72 @@ describe('script runner', () => {
           PATH: '/usr/bin',
           HOME: '/tmp/mcp-home',
           TMPDIR: '/tmp/mcp-tmp',
+          HTTP_PROXY: 'http://proxy.example:8080',
+          HTTPS_PROXY: 'http://proxy.example:8443',
+          NO_PROXY: 'localhost',
+          http_proxy: 'http://proxy.example:8081',
+          https_proxy: 'http://proxy.example:8444',
+          no_proxy: '127.0.0.1',
+          NODE_EXTRA_CA_CERTS: '/tmp/mcp-ca.pem',
           SECRET: 'leak',
           NPM_TOKEN: 'leak',
           NODE_ENV: 'production',
         },
       );
-      assert.match(output.stdout, /^PATH=\/usr\/bin\nHOME=\/tmp\/mcp-home\nTMPDIR=\/tmp\/mcp-tmp\nNODE_ENV=development\nSECRET=unset\nNPM_TOKEN=unset\n$/);
+      assert.equal(
+        output.stdout,
+        'PATH=/usr/bin\nHOME=/tmp/mcp-home\nTMPDIR=/tmp/mcp-tmp\nNODE_ENV=development\nHTTP_PROXY=http://proxy.example:8080\nHTTPS_PROXY=http://proxy.example:8443\nNO_PROXY=localhost\nhttp_proxy=http://proxy.example:8081\nhttps_proxy=http://proxy.example:8444\nno_proxy=127.0.0.1\nNODE_EXTRA_CA_CERTS=/tmp/mcp-ca.pem\nSECRET=unset\nNPM_TOKEN=unset\n',
+      );
     } finally {
       await fs.rm(directory, { recursive: true, force: true });
     }
   });
 });
+
+async function serverAcceptsName(name: string): Promise<boolean> {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-server-name-'));
+  try {
+    const runner = recordingRunner();
+    const result = await dispatchTool({
+      name: 'create_nextjs_app',
+      args: { name, directory },
+      config: localConfig,
+      run: runner.run,
+    });
+    return result.isError !== true && runner.calls.length === 1;
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+}
+
+function repoScriptPath(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../create-next-starter.sh');
+}
+
+async function projectEntries(directory: string): Promise<string[]> {
+  const entries = await fs.readdir(directory);
+  return entries.filter((entry) => entry !== 'setup.log' && entry !== 'setup-error.log');
+}
+
+async function assertScriptLeavesNoProject(scriptPath: string, args: string[]) {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-script-disk-'));
+  try {
+    const result = spawnSync('bash', [scriptPath, ...args], {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+    const output = `${result.stdout}${result.stderr}`;
+    assert.notEqual(result.status, 0, output);
+    assert.equal(result.error, undefined, output);
+    assert.equal(output.includes('Creating Next.js application'), false, output);
+    assert.equal(output.includes('Script is ready to use'), false, output);
+    assert.equal(output.includes('DRY RUN MODE'), false, output);
+    assert.deepEqual(await projectEntries(directory), [], output);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+}
 
 async function scriptAcceptsName(name: string): Promise<boolean> {
   const scriptPath = path.resolve(

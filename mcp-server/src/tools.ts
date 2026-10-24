@@ -11,7 +11,7 @@ export const HOSTED_ENV_FLAG = 'NEXT_STARTER_MCP_HOSTED';
 export const NAME_MAX = 214;
 export const DIRECTORY_MAX = 4096;
 
-const PROJECT_NAME_PATTERN = /^[a-zA-Z0-9-]+$/;
+const PROJECT_NAME_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
 export type ServerConfig =
   | { mode: 'local' }
@@ -62,7 +62,7 @@ const projectNameSchema = z
   .max(NAME_MAX)
   .regex(
     PROJECT_NAME_PATTERN,
-    'App name can only contain letters, numbers, and hyphens',
+    'App name must start with a lowercase letter or number and contain only lowercase letters, numbers, and hyphens',
   );
 
 const directorySchema = z
@@ -113,7 +113,7 @@ export function readServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
 const nameProperty = {
   type: 'string',
   description:
-    'App name (letters, numbers, and hyphens, 1 to 214 characters)',
+    'App name (lowercase letter or number, then lowercase letters, numbers, and hyphens, 1 to 214 characters)',
   pattern: PROJECT_NAME_PATTERN.source,
   minLength: 1,
   maxLength: NAME_MAX,
@@ -360,7 +360,7 @@ function prepareDryRun(raw: unknown): Prepared {
   if (input.skipConvex) args.push('--skip-convex');
   if (input.skipClerk) args.push('--skip-clerk');
   if (input.template !== 'default') args.push('--template', input.template);
-  args.push(input.name);
+  args.push('--', input.name);
   return {
     ok: true,
     tool: 'dry_run',
@@ -392,7 +392,7 @@ function createArgs(input: CreateAppInput): string[] {
   if (input.template !== 'default') args.push('--template', input.template);
   if (input.verbose) args.push('--verbose');
   if (input.mode === 'local' && input.force) args.push('--force');
-  args.push(input.name);
+  args.push('--', input.name);
   return args;
 }
 

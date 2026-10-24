@@ -117,7 +117,18 @@ export function runScript(
   });
 }
 
-const PASSED_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR'] as const;
+const PASSED_ENV_KEYS = [
+  'PATH',
+  'HOME',
+  'TMPDIR',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+  'NODE_EXTRA_CA_CERTS',
+] as const;
 
 function scriptEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const child: NodeJS.ProcessEnv = {

@@ -145,7 +145,7 @@ Try this prompt.
 Create a new Next.js application with full customization options.
 
 **Parameters:**
-- `name` (required) - App name. Letters, numbers, and hyphens. 1 to 214 characters.
+- `name` (required) - App name. A lowercase letter or number, then lowercase letters, numbers, and hyphens. 1 to 214 characters.
 - `directory` (optional) - Where to create the app
 - `skipConvex` (optional) - Skip Convex database setup
 - `skipClerk` (optional) - Skip Clerk authentication
@@ -173,6 +173,8 @@ Show detailed help for the script.
 4. This server runs `create-next-starter.sh` in the parent directory.
 5. The script creates the Next.js application.
 6. The tool result goes back to the client.
+
+The server always puts the app name after `--`. The script then reads that word as the name, including when the caller typed something that looks like an option. A shell command with only the app name still opens the script's interactive menu. That menu's first choice skips Clerk and Convex. An MCP create uses the tool arguments instead, so leave `skipConvex` and `skipClerk` false when those integrations should be installed.
 
 ## Development 👨‍💻
 
