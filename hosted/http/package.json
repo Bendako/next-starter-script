@@ -1,0 +1,45 @@
+{
+  "name": "hosted-mcp",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "scripts": {
+    "copy-generator": "node scripts/copy-generator.mjs",
+    "prebuild": "npm run build --prefix ../../mcp-server && npm run copy-generator",
+    "predev": "npm run build --prefix ../../mcp-server && npm run copy-generator",
+    "build": "next build",
+    "dev": "next dev -H 127.0.0.1",
+    "start": "next start -H 127.0.0.1",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "vercel-build": "node scripts/vercel-build.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@vercel/sandbox": "^3.9.0",
+    "convex": "^1.31.0",
+    "mcp-handler": "^2.3.0",
+    "next": "^16.0.0",
+    "nextjs-starter-mcp": "file:../../mcp-server",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "zod": "^4.6.6"
+  }
+}

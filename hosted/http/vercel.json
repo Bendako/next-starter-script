@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "node scripts/vercel-build.mjs",
+  "functions": {
+    "app/mcp/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

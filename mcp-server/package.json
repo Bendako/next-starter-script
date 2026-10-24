@@ -4,6 +4,12 @@
   "description": "MCP server for creating Next.js applications with the create-next-starter.sh script",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./tools": "./dist/tools.js",
+    "./run": "./dist/run.js",
+    "./handlers": "./dist/handlers.js"
+  },
   "bin": {
     "nextjs-starter-mcp": "dist/index.js"
   },
