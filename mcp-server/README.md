@@ -75,7 +75,7 @@ Then use:
 Create a new Next.js application with full customization options.
 
 **Parameters:**
-- `name` (required) - App name (letters, numbers, hyphens only)
+- `name` (required) - App name. Lowercase letters, numbers, hyphens, and underscores. 1 to 214 characters. Cannot start with a hyphen or underscore.
 - `directory` (optional) - Where to create the app
 - `skipConvex` (optional) - Skip Convex database setup
 - `skipClerk` (optional) - Skip Clerk authentication
@@ -126,7 +126,10 @@ npm run clean
 ```
 mcp-server/
 ├── src/
-│   └── index.ts          # Main MCP server implementation
+│   ├── index.ts          # Stdio server
+│   ├── tools.ts          # Tool definitions and input validation
+│   ├── run.ts            # Script execution
+│   └── tools.test.ts     # Input and argv tests
 ├── dist/                 # Built JavaScript (generated)
 ├── package.json          # Dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration
@@ -157,6 +160,10 @@ npm run dev
 ```
 
 Check the console for error messages and script execution details.
+
+## Hosted mode
+
+Set `NEXT_STARTER_MCP_HOSTED=1` (or `true`) before starting the server when callers are not trusted. The server then omits `directory` and `force` from `tools/list` and rejects those arguments. New projects are written under a directory the server chooses inside the system temp folder. Leave the variable unset for local stdio. Local callers can still pass `directory` and `force`.
 
 ## License 📄
 
