@@ -57,11 +57,15 @@ function killTrackedProcessGroups(): void {
 }
 
 let guardsInstalled = false;
+let shuttingDown = false;
 
 export function installProcessGuards(): void {
   if (guardsInstalled) return;
   guardsInstalled = true;
   const stop = () => {
+    // An in-flight request can finish async path preparation after stdin EOF.
+    // Refuse *future* spawns as well as killing children already running.
+    shuttingDown = true;
     killTrackedProcessGroups();
   };
   process.on('exit', stop);
@@ -73,6 +77,12 @@ export function installProcessGuards(): void {
     stop();
     process.exit(143);
   });
+  if (process.platform !== 'win32') {
+    process.on('SIGHUP', () => {
+      stop();
+      process.exit(129);
+    });
+  }
   process.stdin.on('end', stop);
   process.stdin.on('close', stop);
 }
@@ -104,6 +114,11 @@ export function runScript(
   call: ScriptCall,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ScriptOutput> {
+  if (shuttingDown) {
+    return Promise.reject(new ScriptRunError('MCP server is shutting down', {
+      code: 'ESHUTDOWN', stdout: '', stderr: '',
+    }));
+  }
   console.error(`Running ${scriptPath} in ${call.cwd} args=${JSON.stringify(call.args)}`);
 
   return new Promise((resolve, reject) => {
