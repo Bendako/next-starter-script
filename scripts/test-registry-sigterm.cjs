@@ -105,8 +105,15 @@ test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeo
     if (!ready) {
       const diagnostics = await fs.readFile(debugFile, 'utf8').catch(() => '(no Python wrapper diagnostic)');
       const locations = await fs.readFile(tempRecord, 'utf8').catch(() => '(no recorded temp directories)');
+      const pidText = await fs.readFile(pidfile, 'utf8').catch(() => '(no pid)');
+      const portText = await fs.readFile(portPointer, 'utf8').catch(() => '(no port pointer)');
+      const pid = Number(pidText.trim());
+      const portPath = portText.trim();
       assert.fail('local Python registry stub did not start\n' + out +
-        '\nPython wrapper: ' + diagnostics + '\nCreated temp dirs: ' + JSON.stringify(locations));
+        '\nPython wrapper: ' + diagnostics +
+        '\nPython pid: ' + JSON.stringify(pidText) + ' alive=' + (Number.isSafeInteger(pid) && pid > 0 ? alive(pid) : false) +
+        '\nPort path: ' + JSON.stringify(portText) + ' exists=' + Boolean(portPath && await exists(portPath)) +
+        '\nCreated temp dirs: ' + JSON.stringify(locations));
     }
     assert.ok(stubPid > 0);
 
