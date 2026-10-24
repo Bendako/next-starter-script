@@ -90,6 +90,12 @@ CREATED_DIRS=()
 PARTIAL_INSTALL=false
 APP_NAME=""
 
+# Self-test owns a temporary Python registry and two mktemp directories.
+# Keep these values global so EXIT/SIGTERM cleanup can reach them.
+SELF_TEST_STUB_PID=""
+SELF_TEST_STUB_DIR=""
+SELF_TEST_PING_DIR=""
+
 # Configuration
 MAX_RETRIES=3
 RETRY_DELAY=5
@@ -120,8 +126,27 @@ log_info() {
   echo "[$timestamp] INFO: $message" >> "setup.log" 2>/dev/null || true
 }
 
+# Reap self-test's local registry on normal completion and interrupted exit.
+# Only remove paths returned by mktemp; never use the app's working directory.
+cleanup_self_test_resources() {
+  if [ -n "${SELF_TEST_STUB_PID:-}" ]; then
+    kill "$SELF_TEST_STUB_PID" 2>/dev/null || true
+    wait "$SELF_TEST_STUB_PID" 2>/dev/null || true
+    SELF_TEST_STUB_PID=""
+  fi
+  if [ -n "${SELF_TEST_STUB_DIR:-}" ]; then
+    rm -rf -- "$SELF_TEST_STUB_DIR" || true
+    SELF_TEST_STUB_DIR=""
+  fi
+  if [ -n "${SELF_TEST_PING_DIR:-}" ]; then
+    rm -rf -- "$SELF_TEST_PING_DIR" || true
+    SELF_TEST_PING_DIR=""
+  fi
+}
+
 # Comprehensive cleanup function
 cleanup() {
+  cleanup_self_test_resources
   local exit_code=$?
   
   if [ $exit_code -ne 0 ] && [ "$CLEANUP_NEEDED" = true ]; then
@@ -3065,7 +3090,6 @@ script_self_test() {
   local ping_stub_dir
   local saved_path
   local stub_dir
-  local stub_pid
   local portfile
   local logfile
   local port
@@ -3073,6 +3097,7 @@ script_self_test() {
   local i
   local check_out
   ping_stub_dir=$(mktemp -d)
+  SELF_TEST_PING_DIR="$ping_stub_dir"
   printf '%s\n' '#!/bin/sh' 'exit 1' > "$ping_stub_dir/ping"
   chmod +x "$ping_stub_dir/ping"
   saved_path="$PATH"
@@ -3110,11 +3135,11 @@ script_self_test() {
     print_status "$GREEN" "  ✅ Unreachable registry check fails"
   fi
 
-  stub_pid=""
   if ! command -v python3 >/dev/null 2>&1; then
     print_status "$YELLOW" "  ⚠️  Local registry checks skipped: python3 is not installed"
   else
     stub_dir=$(mktemp -d)
+    SELF_TEST_STUB_DIR="$stub_dir"
     portfile="$stub_dir/port"
     logfile="$stub_dir/requests"
     cat > "$stub_dir/server.py" <<'PY'
@@ -3145,7 +3170,7 @@ with open(portfile, "w") as handle:
 server.serve_forever()
 PY
     python3 "$stub_dir/server.py" "$portfile" "$logfile" >"$stub_dir/server.out" 2>&1 &
-    stub_pid=$!
+    SELF_TEST_STUB_PID=$!
     ready=0
     i=0
     while [ "$i" -lt 5 ]; do
@@ -3247,13 +3272,8 @@ PY
         test_failures=$((test_failures + 1))
       fi
     fi
-    if [ -n "$stub_pid" ]; then
-      kill "$stub_pid" 2>/dev/null || true
-      wait "$stub_pid" 2>/dev/null || true
-    fi
-    rm -rf "$stub_dir"
   fi
-  rm -rf "$ping_stub_dir"
+  cleanup_self_test_resources
   
   # Report results
   if [ $test_failures -eq 0 ]; then
