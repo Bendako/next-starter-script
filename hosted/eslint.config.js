@@ -64,7 +64,7 @@ const polarAdapter = {
 
 export default tseslint.config(
   {
-    ignores: ['node_modules/**'],
+    ignores: ['node_modules/**', 'http/**'],
   },
   eslint.configs.recommended,
   tseslint.configs.recommended,

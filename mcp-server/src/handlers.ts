@@ -15,7 +15,7 @@ import {
 export type ToolHandlers = {
   config: ServerConfig;
   run: (call: ScriptCall) => Promise<{ stdout: string; stderr: string }>;
-  beforeCall?: (tool: string) => Promise<ToolTextResult | undefined>;
+  beforeCall?: (tool: string, args: unknown) => Promise<ToolTextResult | undefined>;
   generate?: (generation: HostedGeneration) => Promise<ToolTextResult>;
 };
 
@@ -25,7 +25,7 @@ export async function executeToolCall(
   handlers: ToolHandlers,
 ): Promise<ToolTextResult> {
   if (handlers.beforeCall) {
-    const blocked = await handlers.beforeCall(name);
+    const blocked = await handlers.beforeCall(name, args);
     if (blocked) return blocked;
   }
   return dispatchTool({

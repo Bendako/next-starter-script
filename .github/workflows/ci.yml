@@ -87,3 +87,38 @@ jobs:
     - name: Test payments contracts
       working-directory: ./hosted
       run: npm test 
+
+  test-hosted:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install MCP server
+      working-directory: ./mcp-server
+      run: npm ci
+
+    - name: Install hosted MCP app
+      working-directory: ./hosted/http
+      run: npm ci
+
+    - name: Test hosted MCP app
+      working-directory: ./hosted/http
+      run: npm test
+
+    - name: Lint hosted MCP app
+      working-directory: ./hosted/http
+      run: npm run lint
+
+    - name: Build hosted MCP app
+      working-directory: ./hosted/http
+      run: npm run vercel-build
+
+    - name: Verify Streamable HTTP and stdio
+      working-directory: ./hosted/http
+      run: node scripts/verify-http.mjs

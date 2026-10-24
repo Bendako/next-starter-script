@@ -238,7 +238,7 @@ Check the console for error messages and script execution details.
 
 Set `NEXT_STARTER_MCP_HOSTED=1` (or `true`) before starting the server when callers are not trusted. The server then omits `directory` and `force` from `tools/list` and rejects those arguments. New projects are written under a directory the server chooses inside the system temp folder. Leave the variable unset for local stdio. Local callers can still pass `directory` and `force`.
 
-The hosted app in `hosted/` uses the same tool list and `dispatchTool`. This package stays the stdio server.
+The hosted app in `hosted/http` uses the same tool list and `dispatchTool`. This package stays the stdio server.
 
 ## License 📄
 

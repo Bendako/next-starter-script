@@ -121,6 +121,9 @@ demo-*/
 mcp-server/dist/
 mcp-server/node_modules/
 mcp-server/*.log
+
+# Hosted app copies the generator at build time.
+hosted/http/vendor/
 my-*/
 
 # Logs
