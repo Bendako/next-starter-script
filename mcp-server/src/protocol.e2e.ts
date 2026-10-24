@@ -370,6 +370,19 @@ if (suite === 'ci') {
   test('stdin-close-kills-process-group', { timeout: 20_000 }, async () => {
     await assertStdinCloseKillsGroup();
   });
+  test('shutdown-denies-late-subprocess-spawns', { timeout: 20_000 }, async () => {
+    const cwd = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const script = [
+      "import { installProcessGuards, runScript } from './src/run.ts';",
+      'installProcessGuards();',
+      "process.stdin.emit('end');",
+      "try { await runScript('/does-not-exist', { cwd: process.cwd(), args: [] }); process.exitCode = 2; }",
+      "catch (error) { if (error?.code !== 'ESHUTDOWN') { console.error(error); process.exitCode = 3; } }",
+    ].join('\n');
+    await runAppCommand(cwd, process.execPath, [
+      '--import', 'tsx', '--input-type=module', '--eval', script,
+    ], 10_000);
+  });
   test('qa-validation-timeout-kills-descendants', { timeout: 10_000 }, async () => {
     if (process.platform === 'win32') return;
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-qa-timeout-'));
