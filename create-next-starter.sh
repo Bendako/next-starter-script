@@ -194,7 +194,7 @@ USAGE:
   $0 <app-name>
   
   # Command-line mode (for automation/scripts):
-  $0 [OPTIONS] <app-name>
+  $0 [OPTIONS] [--] <app-name>
 
 DESCRIPTION:
   Create a new Next.js application with TypeScript, Tailwind CSS, and optionally
@@ -211,7 +211,7 @@ INTERACTIVE MODE:
   Select options by entering the corresponding number (1-4)
 
 REQUIRED:
-  <app-name>           Name for your new application (letters, numbers, hyphens only)
+  <app-name>           Lowercase letter or number, then lowercase letters, numbers, and hyphens. 1 to 214 characters. Put the name after -- so it is not read as an option.
 
 COMMAND-LINE OPTIONS:
   --skip-convex        Skip Convex database setup
@@ -577,6 +577,20 @@ parse_arguments() {
         show_version
         exit 0
         ;;
+      --)
+        shift
+        while [[ $# -gt 0 ]]; do
+          if [ -z "$APP_NAME" ]; then
+            APP_NAME="$1"
+            log_info "App name set to: $APP_NAME"
+          else
+            log_error "Multiple app names provided: '$APP_NAME' and '$1'"
+            print_status "$YELLOW" "💡 Please provide only one app name"
+            exit 1
+          fi
+          shift
+        done
+        ;;
       -*)
         log_error "Unknown option: $1"
         print_status "$YELLOW" "💡 Use --help to see available options"
@@ -816,27 +830,25 @@ print_status() {
   echo -e "${color}${message}${NC}"
 }
 
+require_valid_app_name_format() {
+  local app_name="$1"
+  if [[ -n "$app_name" && ${#app_name} -le 214 && "$app_name" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    return 0
+  fi
+  log_error "Invalid app name format: $app_name"
+  print_status "$YELLOW" "💡 App name requirements:"
+  print_status "$YELLOW" "  - Start with a lowercase letter or number"
+  print_status "$YELLOW" "  - Then only lowercase letters, numbers, and hyphens"
+  print_status "$YELLOW" "  - No spaces or special characters"
+  print_status "$YELLOW" "  - 1 to 214 characters"
+  print_status "$YELLOW" "  - Example: my-awesome-app"
+  exit 1
+}
+
 # Function to validate app name with enhanced error handling and FORCE option
 validate_app_name() {
   local app_name="$1"
-  
-  # Check if app name is provided (this is now handled in parse_arguments)
-  if [ -z "$app_name" ]; then
-    log_error "No app name provided"
-    print_status "$YELLOW" "Usage: $0 <app-name>"
-    print_status "$YELLOW" "Example: $0 my-awesome-app"
-    exit 1
-  fi
-  
-  # Check app name format
-  if [[ ! "$app_name" =~ ^[a-zA-Z0-9-]+$ ]]; then
-    log_error "Invalid app name format: $app_name"
-    print_status "$YELLOW" "💡 App name requirements:"
-    print_status "$YELLOW" "  - Only letters, numbers, and hyphens allowed"
-    print_status "$YELLOW" "  - No spaces or special characters"
-    print_status "$YELLOW" "  - Example: my-awesome-app"
-    exit 1
-  fi
+  require_valid_app_name_format "$app_name"
   
   # Check if directory already exists
   if [ -d "$app_name" ]; then
@@ -2980,6 +2992,8 @@ main_execution() {
   
   # Parse command line arguments
   parse_arguments "$@"
+
+  require_valid_app_name_format "$APP_NAME"
   
   # Show dry run summary if requested (exits if dry run)
   show_dry_run_summary

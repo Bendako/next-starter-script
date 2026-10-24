@@ -145,7 +145,7 @@ Try this prompt.
 Create a new Next.js application with full customization options.
 
 **Parameters:**
-- `name` (required) - App name (letters, numbers, hyphens only)
+- `name` (required) - App name. A lowercase letter or number, then lowercase letters, numbers, and hyphens. 1 to 214 characters.
 - `directory` (optional) - Where to create the app
 - `skipConvex` (optional) - Skip Convex database setup
 - `skipClerk` (optional) - Skip Clerk authentication
@@ -174,6 +174,8 @@ Show detailed help for the script.
 5. The script creates the Next.js application.
 6. The tool result goes back to the client.
 
+The server always puts the app name after `--`. The script then reads that word as the name, including when the caller typed something that looks like an option. A shell command with only the app name still opens the script's interactive menu. That menu's first choice skips Clerk and Convex. An MCP create uses the tool arguments instead, so leave `skipConvex` and `skipClerk` false when those integrations should be installed.
+
 ## Development 👨‍💻
 
 ### Run in Development Mode
@@ -196,7 +198,10 @@ npm run clean
 ```
 mcp-server/
 ├── src/
-│   └── index.ts          # Main MCP server implementation
+│   ├── index.ts          # Stdio server
+│   ├── tools.ts          # Tool definitions and input validation
+│   ├── run.ts            # Script execution
+│   └── tools.test.ts     # Input and argv tests
 ├── dist/                 # Built JavaScript (generated)
 ├── package.json          # Dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration
@@ -227,6 +232,10 @@ npm run dev
 ```
 
 Check the console for error messages and script execution details.
+
+## Hosted mode
+
+Set `NEXT_STARTER_MCP_HOSTED=1` (or `true`) before starting the server when callers are not trusted. The server then omits `directory` and `force` from `tools/list` and rejects those arguments. New projects are written under a directory the server chooses inside the system temp folder. Leave the variable unset for local stdio. Local callers can still pass `directory` and `force`.
 
 ## License 📄
 
