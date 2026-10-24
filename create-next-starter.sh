@@ -1061,9 +1061,20 @@ CLERK_SECRET_KEY=
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
-NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=
+
+# Production only. true serves protected routes when either Clerk key is missing.
+# Otherwise those routes return 503. Public routes stay available either way.
+ALLOW_NO_AUTH=
 
 EOF
+  fi
+
+  if [ "$SKIP_CLERK" = false ]; then
+    cp .env.local .env.example
+    if [ -f .gitignore ] && ! grep -q '!.env.example' .gitignore; then
+      printf '\n!.env.example\n' >> .gitignore
+    fi
   fi
 
   cat >> .env.local << EOF
@@ -1554,7 +1565,8 @@ import \"./globals.css\";"
   
   if [ "$SKIP_CLERK" = false ]; then
     imports="$imports
-import { ClerkProvider } from '@clerk/nextjs'"
+import { ClerkProvider } from '@clerk/nextjs'
+import { readClerkRuntime, reportMissingClerk } from '../lib/clerk-runtime'"
   fi
   
   if [ "$SKIP_CONVEX" = false ]; then
@@ -1612,20 +1624,19 @@ export default function RootLayout({
 }) {
 EOF
 
-  # Blank Clerk keys are a supported state. ClerkProvider throws without them.
+  # ClerkProvider throws when the publishable key is missing. The check is runtime.
   if [ "$SKIP_CLERK" = false ]; then
     cat >> src/app/layout.tsx << EOF
+  const clerk = readClerkRuntime()
   const tree = (
 $layout_content
   );
 
-  if (
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-    process.env.CLERK_SECRET_KEY
-  ) {
+  if (clerk.configured) {
     return <ClerkProvider>{tree}</ClerkProvider>;
   }
 
+  reportMissingClerk(clerk)
   return tree;
 }
 EOF
@@ -1932,7 +1943,7 @@ create_custom_scripts() {
     # Build scripts based on what's enabled
     local convex_scripts=""
     if [ "$SKIP_CONVEX" = false ]; then
-      convex_scripts="'setup:convex': 'npx convex dev --once',
+      convex_scripts="'setup:convex': 'npx convex dev --once && node scripts/remove-convex-tsconfig-exclude.mjs',
         'deploy:$APP_NAME': 'npm run build && npx convex deploy',"
     fi
     
@@ -1948,7 +1959,7 @@ create_custom_scripts() {
       
       // Add Convex scripts only if not skipped
       if ('$SKIP_CONVEX' === 'false') {
-        newScripts['setup:convex'] = 'npx convex dev --once';
+        newScripts['setup:convex'] = 'npx convex dev --once && node scripts/remove-convex-tsconfig-exclude.mjs';
         newScripts['deploy:$APP_NAME'] = 'npm run build && npx convex deploy';
       }
       
@@ -1960,6 +1971,32 @@ create_custom_scripts() {
       fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
     "
     
+    if [ "$SKIP_CONVEX" = false ]; then
+      mkdir -p scripts
+      cat > scripts/remove-convex-tsconfig-exclude.mjs << 'EOF'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+
+const generated =
+  existsSync('convex/_generated/server.js') ||
+  existsSync('convex/_generated/server.d.ts')
+
+if (!generated) {
+  console.log('convex/_generated is absent. tsconfig exclude left in place.')
+  process.exit(0)
+}
+
+const file = 'tsconfig.json'
+const ts = JSON.parse(readFileSync(file, 'utf8'))
+const exclude = Array.isArray(ts.exclude) ? ts.exclude : []
+const next = exclude.filter((item) => item !== 'convex')
+if (next.length !== exclude.length) {
+  ts.exclude = next
+  writeFileSync(file, JSON.stringify(ts, null, 2) + '\n')
+  console.log('Removed convex from tsconfig exclude.')
+}
+EOF
+    fi
+
     print_status "$GREEN" "  ✅ Custom scripts added to package.json"
   else
     print_status "$YELLOW" "  ⚠️  package.json not found, skipping custom scripts"
@@ -2074,8 +2111,35 @@ create_template_files() {
   update_header_component
   create_custom_scripts
   apply_template_customizations
+  append_project_readme
   
   print_status "$GREEN" "✅ All template files created with personalized content"
+}
+
+append_project_readme() {
+  if [ ! -f README.md ]; then
+    return 0
+  fi
+
+  if [ "$SKIP_CLERK" = false ]; then
+    cat >> README.md << 'EOF'
+
+## Authentication without Clerk keys
+
+Development starts when NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY or CLERK_SECRET_KEY is empty. Auth is off. The server logs one warning that names the missing key.
+
+Production returns 503 for protected routes when either key is missing. Public routes stay available. Set ALLOW_NO_AUTH=true to serve protected routes without Clerk. The server logs a warning when that opt-in is set.
+EOF
+  fi
+
+  if [ "$SKIP_CONVEX" = false ]; then
+    cat >> README.md << 'EOF'
+
+## Convex typecheck
+
+next build excludes convex/ until Convex codegen exists. npm run setup:convex runs codegen and removes that exclude after convex/_generated exists. If you run npx convex dev yourself, run node scripts/remove-convex-tsconfig-exclude.mjs afterward.
+EOF
+  fi
 }
 
 # STEP 6: Initialize External Tools
@@ -2360,10 +2424,68 @@ EOF
 # Function to create Clerk proxy (Next.js 16 file convention, formerly middleware.ts)
 create_clerk_middleware() {
   print_status "$BLUE" "🔐 Creating Clerk proxy..."
-  
+
+  mkdir -p src/lib
+  cat > src/lib/clerk-runtime.ts << 'EOF'
+export type ClerkKeyName =
+  | 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY'
+  | 'CLERK_SECRET_KEY'
+
+export type ClerkRuntime = {
+  configured: boolean
+  missing: ClerkKeyName[]
+  production: boolean
+  allowNoAuth: boolean
+}
+
+const clerkKeys: ClerkKeyName[] = [
+  'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
+  'CLERK_SECRET_KEY',
+]
+
+// Next inlines process.env.NAME at build time. A computed key is read on each call.
+function runtimeEnv(name: string): string {
+  const value = process.env[name]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+export function readClerkRuntime(): ClerkRuntime {
+  const missing = clerkKeys.filter((name) => runtimeEnv(name) === '')
+  return {
+    configured: missing.length === 0,
+    missing,
+    production: runtimeEnv('NODE_ENV') === 'production',
+    allowNoAuth: runtimeEnv('ALLOW_NO_AUTH') === 'true',
+  }
+}
+
+const reportedKey = '__clerkAuthReported'
+
+export function reportMissingClerk(clerk: ClerkRuntime): void {
+  if (clerk.configured) return
+  const globalState = globalThis as Record<string, unknown>
+  if (globalState[reportedKey]) return
+  globalState[reportedKey] = true
+
+  const missing = clerk.missing.join(', ')
+  if (!clerk.production) {
+    console.warn(`[auth] Clerk auth is off in development. Missing ${missing}.`)
+    return
+  }
+  if (clerk.allowNoAuth) {
+    console.warn(`[auth] ALLOW_NO_AUTH=true. Clerk auth is off in production. Missing ${missing}.`)
+    return
+  }
+  console.error(
+    `[auth] Clerk auth is off in production. Missing ${missing}. Protected routes return 503. Set both Clerk keys, or set ALLOW_NO_AUTH=true to allow this.`
+  )
+}
+EOF
+
   cat > src/proxy.ts << 'EOF'
 import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server'
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { readClerkRuntime, reportMissingClerk } from './lib/clerk-runtime'
 
 // Define public routes that don't require authentication
 const isPublicRoute = createRouteMatcher([
@@ -2381,14 +2503,16 @@ const handleClerk = clerkMiddleware(async (auth, request) => {
 })
 
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
-  if (
-    !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
-    !process.env.CLERK_SECRET_KEY
-  ) {
-    return NextResponse.next()
+  const clerk = readClerkRuntime()
+  if (clerk.configured) {
+    return handleClerk(request, event)
   }
 
-  return handleClerk(request, event)
+  reportMissingClerk(clerk)
+  if (clerk.production && !clerk.allowNoAuth && !isPublicRoute(request)) {
+    return new NextResponse('Auth not configured', { status: 503 })
+  }
+  return NextResponse.next()
 }
 
 export const config = {
