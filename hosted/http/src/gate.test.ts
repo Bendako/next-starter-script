@@ -1,3 +1,6 @@
+import { verifyClerkToken } from '@clerk/mcp-tools/server';
+import type { MachineAuthObject } from '@clerk/backend';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import assert from 'node:assert/strict';
 import { describe, test } from 'vitest';
 import {
@@ -5,6 +8,7 @@ import {
   authorizeToolCall,
   callerKey,
   identityAllows,
+  localOpen,
   MCP_CLOSED,
   takeCallBudget,
   type RateBucket,
@@ -16,34 +20,84 @@ function request(url: string, headers?: Record<string, string>): Request {
 
 const opened = { NEXT_STARTER_MCP_ALLOW_LOCAL: '1' };
 
-function toolCall(url: string, env: NodeJS.ProcessEnv) {
+function authenticated(userId: string): MachineAuthObject<'oauth_token'> {
+  return {
+    isAuthenticated: true,
+    tokenType: 'oauth_token',
+    userId,
+    clientId: 'client_a',
+    scopes: ['openid', 'profile', 'email'],
+    id: 'oat_a',
+    subject: userId,
+    getToken: () => Promise.resolve('token'),
+    has: () => false,
+    debug: () => ({}),
+  } as MachineAuthObject<'oauth_token'>;
+}
+
+function clerkAuth(userId: string): AuthInfo {
+  const info = verifyClerkToken(authenticated(userId), 'token-a');
+  if (!info) throw new Error('fixture Clerk auth info was not verified');
+  return info;
+}
+
+function toolCall(url: string, env: NodeJS.ProcessEnv, authInfo?: AuthInfo) {
   return authorizeToolCall({
     request: request(url),
     env,
     tool: 'dry_run',
     args: { name: 'verify-app' },
+    authInfo,
   });
 }
 
 describe('authorizeToolCall', () => {
-  test('opens only when local use is explicit and the process is not on Vercel', () => {
-    assert.deepEqual(toolCall('http://203.0.113.10/mcp', opened), { allowed: true });
-    assert.equal(identityAllows({
-      request: request('http://127.0.0.1/mcp'),
-      env: opened,
-      tool: 'test_script',
-      args: {},
-    }), true);
+  test('opens only when local use is explicit, the process is not on Vercel, and Clerk verified the caller', () => {
+    const authInfo = clerkAuth('user_a');
+    const decision = toolCall('http://203.0.113.10/mcp', opened, authInfo);
+    assert.equal(decision.allowed, true);
+    if (decision.allowed) {
+      assert.equal(decision.clerkUserId, 'user_a');
+      assert.equal(decision.caller?.credential, '_TBD_');
+    }
+    assert.equal(
+      identityAllows({
+        request: request('http://127.0.0.1/mcp'),
+        env: opened,
+        tool: 'test_script',
+        args: {},
+        authInfo,
+      }),
+      true,
+    );
+    const anonymous = toolCall('http://203.0.113.10/mcp', opened);
+    assert.equal(anonymous.allowed, false);
+    if (!anonymous.allowed) assert.equal(anonymous.message, 'Authentication required');
+    assert.equal(
+      identityAllows({
+        request: request('http://127.0.0.1/mcp'),
+        env: opened,
+        tool: 'test_script',
+        args: {},
+      }),
+      false,
+    );
+    const decoded = toolCall('http://203.0.113.10/mcp', opened, {
+      token: 'decoded-only',
+      clientId: 'client_a',
+      scopes: ['profile'],
+      extra: { userId: 'user_a' },
+    });
+    assert.equal(decoded.allowed, false);
   });
 
   test('the local flag stays open on a self-hosted process when VERCEL is unset', () => {
-    assert.equal(
-      toolCall('http://203.0.113.10/mcp', {
-        NEXT_STARTER_MCP_ALLOW_LOCAL: '1',
-        VERCEL_ENV: 'production',
-      }).allowed,
-      true,
-    );
+    const env = {
+      NEXT_STARTER_MCP_ALLOW_LOCAL: '1',
+      VERCEL_ENV: 'production',
+    };
+    assert.equal(localOpen(env), true);
+    assert.equal(toolCall('http://203.0.113.10/mcp', env, clerkAuth('user_a')).allowed, true);
   });
 
   test('refuses a localhost URL, local dev, and the old production flag', () => {

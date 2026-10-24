@@ -1,6 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +8,20 @@ import { fileURLToPath } from 'node:url';
 const httpRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repo = path.resolve(httpRoot, '../..');
 const children = [];
+const issuerHost = 'fixture.clerk.accounts.dev';
+
+function publishableKeyForIssuer(host) {
+  return `pk_test_${Buffer.from(`${host}$`).toString('base64url')}`;
+}
+
+function forgedToken() {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(
+    JSON.stringify({ sub: 'user_forged', exp: Math.floor(Date.now() / 1000) + 600 }),
+  ).toString('base64url');
+  const signature = Buffer.from('not-a-signature').toString('base64url');
+  return `${header}.${payload}.${signature}`;
+}
 
 function textOf(result) {
   const block = result.content?.find((item) => item.type === 'text');
@@ -25,6 +38,8 @@ function startServer(port, extraEnv, host = '127.0.0.1') {
       VERCEL: '',
       VERCEL_ENV: '',
       NEXT_STARTER_MCP_ALLOW_PRODUCTION: '',
+      NEXT_STARTER_MCP_ALLOW_LOCAL: '',
+      CLERK_SECRET_KEY: '',
       ...extraEnv,
     },
     detached: true,
@@ -139,22 +154,13 @@ async function expectGateClosed(url, label) {
   }
 }
 
-async function callTool(client, name, args) {
-  const result = await client.callTool({ name, arguments: args });
-  const text = textOf(result);
-  console.log(`\n## ${name}`);
-  console.log(`isError=${Boolean(result.isError)}`);
-  console.log(text.slice(0, 500));
-  if (result.isError) {
-    throw new Error(`${name} failed: ${text.slice(0, 500)}`);
-  }
-  return text;
-}
-
 const port = 3457;
 const base = `http://127.0.0.1:${port}`;
 const lan = lanAddress();
-const server = startServer(port, { NEXT_STARTER_MCP_ALLOW_LOCAL: '1' });
+const server = startServer(port, {
+  NEXT_STARTER_MCP_ALLOW_LOCAL: '1',
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: publishableKeyForIssuer(issuerHost),
+});
 const closed = startServer(3460, {});
 const production = startServer(3458, {
   VERCEL: '1',
@@ -183,6 +189,9 @@ try {
   await expectClosed('http://127.0.0.1:3458/mcp', 'production closed');
   await expectClosed('http://127.0.0.1:3459/mcp', 'preview closed');
 
+  const home = await fetch(`${base}/`);
+  if (!home.ok) throw new Error(`home status ${home.status}`);
+
   const evil = await fetch(`${base}/mcp`, { headers: { origin: 'https://evil.example' } });
   console.log('\n## bad origin');
   console.log(`status=${evil.status}`);
@@ -190,54 +199,66 @@ try {
     throw new Error(`bad origin returned ${evil.status}`);
   }
 
-  const client = new Client({ name: 'hosted-verify', version: '1.0.0' });
-  const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`));
-  await client.connect(transport);
-  const listed = await client.listTools();
-  const names = listed.tools.map((tool) => tool.name);
-  console.log('tools', names.join(','));
-  const create = listed.tools.find((tool) => tool.name === 'create_nextjs_app');
-  const properties = create?.inputSchema?.properties ?? {};
-  if ('directory' in properties || 'force' in properties) {
-    throw new Error('hosted tools/list still advertises directory or force');
-  }
-  if (!names.includes('script_help') || !names.includes('test_script') || !names.includes('dry_run')) {
-    throw new Error(`missing tools: ${names.join(',')}`);
-  }
-  const help = await callTool(client, 'script_help', {});
-  if (!help.includes('app-name') && !help.includes('Usage')) {
-    throw new Error('script_help did not return script usage');
-  }
-  await callTool(client, 'test_script', {});
-  const dry = await callTool(client, 'dry_run', {
-    name: 'verify-app',
-    template: 'minimal',
-    skipConvex: true,
-    skipClerk: true,
+  const anonymous = await fetch(`${base}/mcp`, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json, text/event-stream',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-03-26',
+        capabilities: {},
+        clientInfo: { name: 'hosted-verify', version: '1.0.0' },
+      },
+    }),
   });
-  if (!dry.includes('verify-app')) {
-    throw new Error('dry_run did not name the app');
+  const challenge = anonymous.headers.get('www-authenticate') ?? '';
+  console.log('\n## anonymous');
+  console.log(`status=${anonymous.status}`);
+  console.log(challenge);
+  if (anonymous.status !== 401) throw new Error(`expected 401, got ${anonymous.status}`);
+  if (!challenge.includes('resource_metadata=')) throw new Error('missing resource_metadata challenge');
+  if (!challenge.includes('/.well-known/oauth-protected-resource/mcp')) {
+    throw new Error('challenge does not point at the protected-resource metadata');
   }
-  const created = await callTool(client, 'create_nextjs_app', {
-    name: 'verify-app',
-    template: 'minimal',
-    skipConvex: true,
-    skipClerk: true,
+
+  const forged = await fetch(`${base}/mcp`, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json, text/event-stream',
+      'content-type': 'application/json',
+      authorization: `Bearer ${forgedToken()}`,
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
   });
-  if (created !== 'generation succeeded, delivery not yet available') {
-    throw new Error(`unexpected create result: ${created}`);
+  console.log('\n## forged');
+  console.log(`status=${forged.status}`);
+  if (forged.status !== 401) throw new Error(`forged token status ${forged.status}`);
+
+  const metadataPaths = [
+    ['/.well-known/oauth-protected-resource', base],
+    ['/.well-known/oauth-protected-resource/mcp', `${base}/mcp`],
+  ];
+  for (const [metadataPath, resource] of metadataPaths) {
+    const response = await fetch(`${base}${metadataPath}`);
+    const body = await response.json();
+    console.log(metadataPath, response.status, body.resource, (body.authorization_servers ?? []).join(','));
+    if (response.status !== 200) throw new Error(`${metadataPath} status ${response.status}`);
+    if (body.resource !== resource) throw new Error(`${metadataPath} resource ${body.resource}`);
+    if (!Array.isArray(body.authorization_servers) || body.authorization_servers[0] !== `https://${issuerHost}`) {
+      throw new Error(`${metadataPath} did not name the Clerk authorization server`);
+    }
+    if (!Array.isArray(body.scopes_supported) || !body.scopes_supported.includes('openid')) {
+      throw new Error(`${metadataPath} did not list scopes`);
+    }
+    if (JSON.stringify(body).includes('pk_test_')) {
+      throw new Error(`${metadataPath} echoed the publishable key`);
+    }
   }
-  const rejected = await client.callTool({
-    name: 'create_nextjs_app',
-    arguments: { name: 'MyApp' },
-  });
-  console.log('\n## create_nextjs_app MyApp');
-  console.log(`isError=${Boolean(rejected.isError)}`);
-  console.log(textOf(rejected).slice(0, 300));
-  if (!rejected.isError) {
-    throw new Error('uppercase name was accepted');
-  }
-  await client.close();
   console.log('\nhttp-ok');
 } finally {
   stopAll();
