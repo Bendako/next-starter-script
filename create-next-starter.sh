@@ -690,49 +690,60 @@ detect_environment() {
   fi
 }
 
-# npm config get refuses to print a registry URL that contains credentials.
+# Ask npm to resolve the effective registry (including npmrc location, comments,
+# userconfig/globalconfig and env precedence). Do not parse arbitrary .npmrc here.
+# npm deliberately refuses to reveal URLs containing passwords. In that case
+# a bounded "npm ping" is the safer fallback, unless the URL is from an
+# explicit environment setting (which can be validated without reading files).
 configured_registry() {
   local registry=""
-  local file=""
-  local line=""
-  if [ -n "${npm_config_registry:-}" ]; then
-    printf '%s\n' "$npm_config_registry"
-    return 0
-  fi
-  if [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then
-    printf '%s\n' "$NPM_CONFIG_REGISTRY"
-    return 0
-  fi
   if command -v npm >/dev/null 2>&1; then
     registry=$(npm config get registry 2>/dev/null) || registry=""
   fi
-  if [ -n "$registry" ]; then
-    printf '%s\n' "$registry"
-    return 0
-  fi
-  for file in "./.npmrc" "${HOME:-}/.npmrc"; do
-    [ -f "$file" ] || continue
-    line=$(grep -E '^[[:space:]]*registry[[:space:]]*=' "$file" 2>/dev/null | tail -n 1 || true)
-    [ -n "$line" ] || continue
-    line="${line#*=}"
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
-    case "$line" in
-      \"*\") line="${line#\"}"; line="${line%\"}" ;;
-      \'*\') line="${line#\'}"; line="${line%\'}" ;;
-    esac
-    [ -n "$line" ] || continue
-    printf '%s\n' "$line"
-    return 0
-  done
-  return 1
+  case "$registry" in
+    ""|undefined|null)
+      if [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then
+        registry="$NPM_CONFIG_REGISTRY"
+      elif [ -n "${npm_config_registry:-}" ]; then
+        registry="$npm_config_registry"
+      else
+        return 1
+      fi
+      ;;
+  esac
+  printf '%s\n' "$registry"
 }
 
-mask_registry() {
+# A registry is an HTTP(S) endpoint, not curl flags or a curl config file.
+# Disallow characters which would inject new directives into curl -K stdin.
+valid_registry_url() {
   local url="$1"
   case "$url" in
-    *://*@*)
-      printf '%s://***@%s\n' "${url%%://*}" "${url#*@}"
+    http://*|https://*) ;;
+    *) return 1 ;;
+  esac
+  case "$url" in
+    *'"'*|*'\'*|*'?'*|*'#'*) return 1 ;;
+  esac
+  if [[ "$url" =~ [[:space:][:cntrl:]] ]]; then
+    return 1
+  fi
+  local authority="${url#*://}"
+  authority="${authority%%/*}"
+  [ -n "$authority" ]
+}
+
+# Mask only the authority's userinfo, using its *last* @. An @ in a
+# password or in a path segment must not expose credentials or be mangled.
+mask_registry() {
+  local url="$1"
+  local scheme="${url%%://*}"
+  local remainder="${url#*://}"
+  local authority="${remainder%%/*}"
+  local suffix="${remainder#"$authority"}"
+  case "$authority" in
+    *@*)
+      printf '%s://***@%s%s\n' "$scheme" "${authority##*@}" "$suffix"
       ;;
     *)
       printf '%s\n' "$url"
@@ -740,28 +751,12 @@ mask_registry() {
   esac
 }
 
-npm_registry_reachable() {
-  local registry=""
-  local code=""
-  registry=$(configured_registry) || registry=""
-  if [ -z "$registry" ]; then
-    registry="https://registry.npmjs.org/"
-  fi
-  registry="${registry%/}"
-  NPM_REGISTRY=$(mask_registry "$registry")
-  if command -v curl >/dev/null 2>&1; then
-    code=$(curl -sS -o /dev/null -m 5 -w '%{http_code}' "${registry}/-/ping" 2>/dev/null) || true
-    case "$code" in
-      ""|000) return 1 ;;
-    esac
-    return 0
-  fi
-  # fetch-timeout does not abort a hung TCP connect.
+bounded_npm_ping() {
+  # npm resolves its own registry and auth. Kill a hung npm connection even
+  # when --fetch-timeout does not abort TCP connect.
   npm ping --fetch-timeout=5000 --fetch-retries=0 >/dev/null 2>&1 &
-  local ping_pid
-  local waited
-  ping_pid=$!
-  waited=0
+  local ping_pid=$!
+  local waited=0
   while kill -0 "$ping_pid" 2>/dev/null; do
     if [ "$waited" -ge 5 ]; then
       kill "$ping_pid" 2>/dev/null || true
@@ -771,7 +766,36 @@ npm_registry_reachable() {
     sleep 1
     waited=$((waited + 1))
   done
-  wait "$ping_pid" || return 1
+  wait "$ping_pid"
+}
+
+npm_registry_reachable() {
+  local registry=""
+  local code=""
+  if ! registry=$(configured_registry); then
+    # Protected npmrc settings remain private. Do not attempt to parse them.
+    NPM_REGISTRY="configured npm registry (redacted)"
+    bounded_npm_ping
+    return $?
+  fi
+  registry="${registry%/}"
+  if ! valid_registry_url "$registry"; then
+    NPM_REGISTRY="invalid npm registry (redacted)"
+    return 1
+  fi
+  NPM_REGISTRY=$(mask_registry "$registry")
+  if command -v curl >/dev/null 2>&1; then
+    # -K - puts the URL on stdin instead of the process command line.
+    # Only a validated URL can enter this quoted curl config directive.
+    # -q disables a user's ~/.curlrc so this check is deterministic.
+    code=$(printf 'url = "%s/-/ping"\n' "$registry" |
+      curl -q -sS -o /dev/null -m 5 -w '%{http_code}' -K - 2>/dev/null) || true
+    case "$code" in
+      ""|000) return 1 ;;
+    esac
+    return 0
+  fi
+  bounded_npm_ping
 }
 
 # STEP 9.2: Enhanced prerequisite checking with version detection
