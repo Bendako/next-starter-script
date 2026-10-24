@@ -3069,6 +3069,32 @@ script_self_test() {
   chmod +x "$ping_stub_dir/ping"
   saved_path="$PATH"
 
+  # Security regression: a registry value must never become a curl option or
+  # inject another directive into the curl config provided over stdin.
+  if ( npm_config_registry='-K./payload' npm_registry_reachable ) >/dev/null 2>&1 ||
+     ( npm_config_registry='http://safe.example/"' npm_registry_reachable ) >/dev/null 2>&1 ||
+     ( npm_config_registry=$'http://safe.example/\nurl = "https://attacker.example"' npm_registry_reachable ) >/dev/null 2>&1; then
+    print_status "$RED" "  ❌ Unsafe registry accepted"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ Unsafe registry values rejected"
+  fi
+
+  if [ "$(mask_registry 'https://u:FAKE@PW@host.example/npm/@scope/')" != 'https://***@host.example/npm/@scope/' ] ||
+     [ "$(mask_registry 'https://host.example/npm/@scope/')" != 'https://host.example/npm/@scope/' ]; then
+    print_status "$RED" "  ❌ Registry masking failed"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ Registry passwords and scoped paths masked safely"
+  fi
+
+  if [ "$(NPM_CONFIG_REGISTRY='http://upper.example/' npm_config_registry='http://lower.example/' configured_registry)" != 'http://upper.example/' ]; then
+    print_status "$RED" "  ❌ npm registry environment precedence mismatch"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ npm registry environment precedence respected"
+  fi
+
   if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:9" check_prerequisites >/dev/null ); then
     print_status "$RED" "  ❌ Unreachable registry was reported reachable"
     test_failures=$((test_failures + 1))
