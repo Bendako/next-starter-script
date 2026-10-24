@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./payments": "./src/payments/index.ts",
+    "./payments/polar": "./src/payments/adapters/polar/provider.ts",
     "./payments/store-contract": "./src/payments/store-contract.ts",
     "./payments/provider-contract": "./src/payments/provider-contract.ts"
   },
@@ -17,6 +18,9 @@
   "license": "MIT",
   "engines": {
     "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "dependencies": {
+    "@polar-sh/sdk": "1.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

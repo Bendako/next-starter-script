@@ -27,7 +27,26 @@ Event ids are global across users. A durable store may drop an id after the prov
 
 `PaymentsProvider` requires `createCustomerPortalUrl`. The issue text listed that method as optional. Callers can call it on every adapter.
 
-Import `@polar-sh` only from `src/payments/adapters/polar/`. That ban includes `hosted/convex/`. The Polar adapter is a later change.
+Import `@polar-sh` only from `src/payments/adapters/polar/`. That ban includes `hosted/convex/`.
+
+## Polar
+
+The Polar adapter imports `@polar-sh/sdk/2026-10` and nothing else from that package's other versions. Checkout calls `checkouts.create` with `products` and `external_customer_id`. `cancelUrl` is sent as Polar's `return_url`. The customer portal calls `customerSessions.create` and returns `customer_portal_url`.
+
+`handleWebhook` verifies the body with `webhooks.validateEvent`. The entitlement event id is the `webhook-id` header. Subscription lifecycle events and `customer.state_changed` become `NormalizedWebhookEvent` values. `order.paid` and any event type this SDK version does not know return an empty list after the signature checks out. The caller still passes the list to `EntitlementStore.applyUpdates`.
+
+`getSubscriptionStatus` repeats webhooks this process has already handled. It does not call Polar. The store is the durable copy.
+
+`mapPolarStatus` in `src/payments/adapters/polar/map.ts` is the status table. `past_due` and `trialing` keep access. `canceled`, `unpaid`, `paused`, and `incomplete_expired` are expired. `incomplete` produces no update. An empty `active_subscriptions` list on `customer.state_changed` also produces no update, because that payload has no plan id. `subscription.revoked` is the event that ends access.
+
+These environment names are read by `loadPolarConfig`. The values stay in the host environment.
+
+- `POLAR_ACCESS_TOKEN`
+- `POLAR_WEBHOOK_SECRET`
+- `POLAR_ENVIRONMENT`, either `sandbox` or `production`
+- `POLAR_PRODUCT_ID_TBD_BY_BEN`, the product id for plan id `TBD_BY_BEN`
+
+Prices, further product ids, and plan limits are not chosen.
 
 ## Subscription states
 
