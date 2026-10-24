@@ -1,6 +1,6 @@
 # Next.js Starter MCP Server 🚀
 
-An MCP (Model Context Protocol) server that provides Next.js project creation tools for Claude Desktop. This server wraps the powerful `create-next-starter.sh` script in the parent directory.
+An MCP (Model Context Protocol) server that provides Next.js project creation tools. Claude Desktop, Codex, and Cursor can start it. This server wraps `create-next-starter.sh` in the parent directory.
 
 ## Features ✨
 
@@ -34,14 +34,24 @@ npm run build
 npm run dev
 ```
 
-## Claude Desktop Configuration 🔧
+## Connect a client
 
-Add this to your Claude Desktop configuration file:
+Each client below starts the built server with `node` and the absolute path to `mcp-server/dist/index.js`. Replace `/absolute/path/to/next-starter` with the directory that contains `create-next-starter.sh` and `mcp-server/`.
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+The config key is `nextjs-starter`. The `Server` constructor in `src/index.ts` sets the protocol name to `nextjs-starter-script`. Use `nextjs-starter` in the client config.
 
-### Option 1: Using absolute path
+### Connect Claude Desktop
+
+From the `mcp-server` directory, install dependencies and build the server.
+
+```bash
+npm install && npm run build
+```
+
+Claude Desktop reads `claude_desktop_config.json`. On macOS that file is `~/Library/Application Support/Claude/claude_desktop_config.json`. On Windows that file is `%APPDATA%\Claude\claude_desktop_config.json`. The [Connect to local MCP servers](https://modelcontextprotocol.io/docs/develop/connect-local-servers) guide documents both paths and the `mcpServers`, `command`, and `args` keys.
+
+Add `nextjs-starter` under `mcpServers`. When the file already has other servers, add this entry beside them.
+
 ```json
 {
   "mcpServers": {
@@ -53,21 +63,81 @@ Add this to your Claude Desktop configuration file:
 }
 ```
 
-### Option 2: Install globally
+Quit Claude Desktop, then start it again. Open the `nextjs-starter` connector and confirm it lists `create_nextjs_app`, `dry_run`, `test_script`, and `script_help`.
+
+Try this prompt.
+
+> Create a Next.js app named my-blog and skip the database.
+
+### Connect Codex
+
+From the `mcp-server` directory, install dependencies and build the server.
+
 ```bash
-npm install -g .
+npm install && npm run build
 ```
 
-Then use:
+Codex reads `~/.codex/config.toml`. The [Model Context Protocol](https://learn.chatgpt.com/docs/extend/mcp) page documents a `[mcp_servers.<name>]` table with `command` and `args` for a stdio server. The [Configuration Reference](https://developers.openai.com/codex/config-reference) lists `mcp_servers.<name>.command` as the launcher command and `mcp_servers.<name>.args` as the arguments array.
+
+Add this table.
+
+```toml
+[mcp_servers.nextjs-starter]
+command = "node"
+args = ["/absolute/path/to/next-starter/mcp-server/dist/index.js"]
+```
+
+Run `codex mcp list`. Confirm that `nextjs-starter` is enabled.
+
+Try this prompt.
+
+> Preview a minimal Next.js app named my-dashboard without creating files.
+
+### Connect Cursor
+
+From the `mcp-server` directory, install dependencies and build the server.
+
+```bash
+npm install && npm run build
+```
+
+Cursor reads `mcp.json`. The project file is `.cursor/mcp.json`. The global file is `~/.cursor/mcp.json`. The [MCP integrations](https://cursor.com/help/customization/mcp) page documents both paths and says to commit the project file. The stdio server table on the [Model Context Protocol (MCP)](https://cursor.com/docs/mcp) page lists `type`, `command`, and `args`. It marks `type` as required and gives `stdio` as the value. The same page defines `${workspaceFolder}` as the folder that contains `.cursor/mcp.json` and says Cursor resolves that variable in `args`.
+
+This repo commits `.cursor/mcp.json`.
+
 ```json
 {
   "mcpServers": {
     "nextjs-starter": {
-      "command": "nextjs-starter-mcp"
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/mcp-server/dist/index.js"]
     }
   }
 }
 ```
+
+Open this repo in Cursor after the build. Restart Cursor. Open Customize, then MCPs, and confirm `nextjs-starter` lists `create_nextjs_app`, `dry_run`, `test_script`, and `script_help`.
+
+For `~/.cursor/mcp.json`, or for another project's `.cursor/mcp.json`, use an absolute path.
+
+```json
+{
+  "mcpServers": {
+    "nextjs-starter": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/next-starter/mcp-server/dist/index.js"]
+    }
+  }
+}
+```
+
+Restart Cursor. Confirm the same four tools under Customize, then MCPs.
+
+Try this prompt.
+
+> Show the help for the Next.js starter script.
 
 ## Available Tools 🛠️
 
@@ -97,12 +167,12 @@ Show detailed help for the script.
 
 ## How It Works 🔄
 
-1. **Claude Desktop** connects to this MCP server
-2. **You ask Claude** to create a Next.js project
-3. **Claude calls** the appropriate MCP tool
-4. **MCP server** executes the `../create-next-starter.sh` script
-5. **Script creates** a professional Next.js application
-6. **Results** are returned to Claude and displayed to you
+1. The MCP client connects to this server over stdio.
+2. You ask the client to create a Next.js project.
+3. The client calls the matching tool.
+4. This server runs `create-next-starter.sh` in the parent directory.
+5. The script creates the Next.js application.
+6. The tool result goes back to the client.
 
 ## Development 👨‍💻
 

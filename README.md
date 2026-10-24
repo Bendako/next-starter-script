@@ -11,7 +11,7 @@
 
 *Now with first-class Claude Desktop integration via MCP*
 
-[🚀 Get Started](#quick-start) • [📖 Documentation](#documentation) • [🤖 Claude Setup](#claude-desktop-integration) • [⭐ Star on GitHub](https://github.com/yourusername/next-starter)
+[🚀 Get Started](#quick-start) • [📖 Documentation](#documentation) • [Connect a client](mcp-server/README.md) • [⭐ Star on GitHub](https://github.com/yourusername/next-starter)
 
 </div>
 
@@ -63,25 +63,15 @@ Into this:
 
 ## 🚀 Quick Start
 
-### **Option 1: Claude Desktop (Recommended)**
+### **Option 1: MCP client**
 
-1. **Install MCP Server**
+1. **Build the server**
    ```bash
    cd mcp-server && npm install && npm run build
    ```
 
-2. **Configure Claude Desktop**
-   Add to `claude_desktop_config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "nextjs-starter": {
-         "command": "node",
-         "args": ["/absolute/path/to/next-starter/mcp-server/dist/index.js"]
-       }
-     }
-   }
-   ```
+2. **Add the client config**
+   Claude Desktop, Codex, and Cursor setup is in [`mcp-server/README.md`](mcp-server/README.md).
 
 3. **Create Apps with Natural Language**
    ```
@@ -120,41 +110,9 @@ chmod +x create-next-starter.sh
 - `--test` - Test script integrity
 - `--help` - Show detailed help
 
-## MCP Server for Claude Desktop 🤖
+## Connect an MCP client
 
-The `mcp-server/` directory contains an MCP server that brings the script's power directly into Claude Desktop conversations.
-
-### Quick Setup
-
-```bash
-# Install and build the MCP server
-cd mcp-server
-npm install
-npm run build
-
-# Add to Claude Desktop config
-# macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
-{
-  "mcpServers": {
-    "nextjs-starter": {
-      "command": "node",
-      "args": ["/absolute/path/to/next-starter/mcp-server/dist/index.js"]
-    }
-  }
-}
-```
-
-### Usage in Claude
-
-Once configured, you can ask Claude to:
-
-> "Create a new Next.js app called 'my-blog' with authentication but without database"
-
-> "Show me what would be created for a minimal dashboard app"
-
-> "Test the script integrity"
-
-See `mcp-server/README.md` for detailed MCP server documentation.
+Build the server, then connect Claude Desktop, Codex, or Cursor. The file locations, config snippets, and example prompts are in [`mcp-server/README.md`](mcp-server/README.md).
 
 ## Project Structure 📁
 
@@ -163,7 +121,7 @@ next-starter/
 ├── create-next-starter.sh          # Main bash script (2700+ lines)
 ├── README.md                       # This documentation
 ├── .gitignore                      # Git ignore rules
-├── mcp-server/                     # MCP server for Claude Desktop
+├── mcp-server/                     # MCP server
 │   ├── src/index.ts                # MCP server implementation
 │   ├── package.json                # MCP dependencies
 │   ├── tsconfig.json               # TypeScript config

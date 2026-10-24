@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "nextjs-starter": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/mcp-server/dist/index.js"]
+    }
+  }
+}
