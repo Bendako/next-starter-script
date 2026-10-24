@@ -40,6 +40,11 @@ export type ScriptCall = {
   cwd: string;
 };
 
+export type HostedGeneration = {
+  input: Extract<CreateAppInput, { mode: 'hosted' }>;
+  call: ScriptCall;
+};
+
 export type ToolTextResult = {
   content: Array<{ type: 'text'; text: string }>;
   isError?: boolean;
@@ -98,6 +103,20 @@ const dryRunSchema = z.strictObject({
 });
 
 const emptySchema = z.strictObject({});
+
+export function toolInputSchema(name: string, config: ServerConfig) {
+  switch (name) {
+    case 'create_nextjs_app':
+      return config.mode === 'hosted' ? hostedCreateSchema : localCreateSchema;
+    case 'dry_run':
+      return dryRunSchema;
+    case 'test_script':
+    case 'script_help':
+      return emptySchema;
+    default:
+      return undefined;
+  }
+}
 
 export function readServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
   const flag = env[HOSTED_ENV_FLAG]?.trim().toLowerCase();
@@ -241,6 +260,7 @@ type Prepared =
       workingDirectory: string;
       makeDirectory: boolean;
       call: ScriptCall;
+      input?: Extract<CreateAppInput, { mode: 'hosted' }>;
     }
   | {
       ok: true;
@@ -259,10 +279,20 @@ export async function dispatchTool(options: {
   args: unknown;
   config: ServerConfig;
   run: (call: ScriptCall) => Promise<{ stdout: string; stderr: string }>;
+  // Hosted HTTP passes this so create runs in a sandbox. Stdio omits it.
+  generate?: (generation: HostedGeneration) => Promise<ToolTextResult>;
 }): Promise<ToolTextResult> {
   const prepared = prepare(options.name, options.args, options.config);
   if (!prepared.ok) {
     return textResult(prepared.message, true);
+  }
+
+  if (prepared.tool === 'create_nextjs_app' && prepared.input && options.generate) {
+    try {
+      return await options.generate({ input: prepared.input, call: prepared.call });
+    } catch (error) {
+      return textResult(renderFailure(prepared, error), true);
+    }
   }
 
   if (prepared.tool === 'create_nextjs_app') {
@@ -322,6 +352,7 @@ function prepareCreate(raw: unknown, config: ServerConfig): Prepared {
       workingDirectory: cwd,
       makeDirectory: true,
       call: { cwd, args: createArgs(input) },
+      input,
     };
   }
 

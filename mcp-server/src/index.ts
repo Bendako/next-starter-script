@@ -2,14 +2,11 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { registerToolHandlers } from './handlers.js';
 import { runScript } from './run.js';
-import { dispatchTool, listTools, readServerConfig } from './tools.js';
+import { readServerConfig } from './tools.js';
 
 const config = readServerConfig(process.env);
 const scriptPath = path.resolve(
@@ -30,17 +27,9 @@ const server = new Server(
   },
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: listTools(config),
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  return dispatchTool({
-    name: request.params.name,
-    args: request.params.arguments ?? {},
-    config,
-    run: (call) => runScript(scriptPath, call),
-  });
+registerToolHandlers(server, {
+  config,
+  run: (call) => runScript(scriptPath, call),
 });
 
 const transport = new StdioServerTransport();

@@ -199,6 +199,7 @@ npm run clean
 mcp-server/
 ├── src/
 │   ├── index.ts          # Stdio server
+│   ├── handlers.ts       # Shared tools/list and tools/call registration
 │   ├── tools.ts          # Tool definitions and input validation
 │   ├── run.ts            # Script execution
 │   └── tools.test.ts     # Input and argv tests
@@ -236,6 +237,8 @@ Check the console for error messages and script execution details.
 ## Hosted mode
 
 Set `NEXT_STARTER_MCP_HOSTED=1` (or `true`) before starting the server when callers are not trusted. The server then omits `directory` and `force` from `tools/list` and rejects those arguments. New projects are written under a directory the server chooses inside the system temp folder. Leave the variable unset for local stdio. Local callers can still pass `directory` and `force`.
+
+The hosted app in `hosted/` uses the same tool list and `dispatchTool`. This package stays the stdio server.
 
 ## License 📄
 

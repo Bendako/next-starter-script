@@ -12,6 +12,7 @@ import {
   HOSTED_ENV_FLAG,
   listTools,
   readServerConfig,
+  type HostedGeneration,
   type ScriptCall,
   type ServerConfig,
 } from './tools.js';
@@ -185,6 +186,63 @@ describe('hosted mode', () => {
     } finally {
       await fs.rm(outputRoot, { recursive: true, force: true });
     }
+  });
+
+  test('a hosted generation hook receives the validated argv and does not spawn', async () => {
+    const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-hosted-hook-'));
+    try {
+      const runner = recordingRunner();
+      let seen: HostedGeneration | undefined;
+      const result = await dispatchTool({
+        name: 'create_nextjs_app',
+        args: {
+          name: 'my-app',
+          template: 'minimal',
+          skipConvex: true,
+          skipClerk: true,
+        },
+        config: hostedConfig(outputRoot),
+        run: runner.run,
+        generate: async (generation) => {
+          seen = generation;
+          return {
+            content: [{ type: 'text', text: 'generation succeeded, delivery not yet available' }],
+          };
+        },
+      });
+      assert.equal(result.isError, undefined);
+      assert.equal(runner.calls.length, 0);
+      assert.equal(seen?.input.mode, 'hosted');
+      assert.equal(seen?.input.name, 'my-app');
+      assert.deepEqual(seen?.call.args, [
+        '--skip-convex',
+        '--skip-clerk',
+        '--template',
+        'minimal',
+        '--',
+        'my-app',
+      ]);
+      assert.equal(seen?.call.args.includes('--force'), false);
+      assert.match(result.content[0].text, /delivery not yet available/);
+    } finally {
+      await fs.rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('a hosted generation hook is not called for a rejected name', async () => {
+    let called = false;
+    const result = await dispatchTool({
+      name: 'create_nextjs_app',
+      args: { name: 'bad_name' },
+      config: hostedConfig('/tmp/unused-hosted-root'),
+      run: async () => ({ stdout: '', stderr: '' }),
+      generate: async () => {
+        called = true;
+        return { content: [{ type: 'text', text: 'should not run' }] };
+      },
+    });
+    assert.equal(called, false);
+    assert.equal(result.isError, true);
   });
 });
 
