@@ -1061,7 +1061,7 @@ CLERK_SECRET_KEY=
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
-NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
 
 # Production only. true serves protected routes when either Clerk key is missing.
 # Otherwise those routes return 503. Public routes stay available either way.
@@ -1986,13 +1986,57 @@ if (!generated) {
 }
 
 const file = 'tsconfig.json'
-const ts = JSON.parse(readFileSync(file, 'utf8'))
-const exclude = Array.isArray(ts.exclude) ? ts.exclude : []
-const next = exclude.filter((item) => item !== 'convex')
-if (next.length !== exclude.length) {
-  ts.exclude = next
-  writeFileSync(file, JSON.stringify(ts, null, 2) + '\n')
-  console.log('Removed convex from tsconfig exclude.')
+
+function parseJsonc(text) {
+  let out = ''
+  let i = 0
+  while (i < text.length) {
+    const c = text[i]
+    const n = text[i + 1]
+    if (c === '"') {
+      out += c
+      i += 1
+      while (i < text.length) {
+        const ch = text[i]
+        out += ch
+        i += 1
+        if (ch === '\\' && i < text.length) {
+          out += text[i]
+          i += 1
+          continue
+        }
+        if (ch === '"') break
+      }
+      continue
+    }
+    if (c === '/' && n === '/') {
+      while (i < text.length && text[i] !== '\n') i += 1
+      continue
+    }
+    if (c === '/' && n === '*') {
+      i += 2
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i += 1
+      i += 2
+      continue
+    }
+    out += c
+    i += 1
+  }
+  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'))
+}
+
+try {
+  const ts = parseJsonc(readFileSync(file, 'utf8'))
+  const exclude = Array.isArray(ts.exclude) ? ts.exclude : []
+  const next = exclude.filter((item) => item !== 'convex')
+  if (next.length !== exclude.length) {
+    ts.exclude = next
+    writeFileSync(file, JSON.stringify(ts, null, 2) + '\n')
+    console.log('Removed convex from tsconfig exclude.')
+  }
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  console.warn(`Left tsconfig.json unchanged (${message}). Remove "convex" from exclude by hand.`)
 }
 EOF
     fi
