@@ -2956,25 +2956,45 @@ script_self_test() {
 
   local ping_stub_dir
   local saved_path
+  local mirror_out
   ping_stub_dir=$(mktemp -d)
   printf '%s\n' '#!/bin/sh' 'exit 1' > "$ping_stub_dir/ping"
   chmod +x "$ping_stub_dir/ping"
   saved_path="$PATH"
-  PATH="$ping_stub_dir:$PATH"
   if ( check_prerequisites >/dev/null ); then
-    print_status "$GREEN" "  ✅ Registry check passes when ping fails"
+    PATH="$ping_stub_dir:$PATH"
+    if ( check_prerequisites >/dev/null ); then
+      print_status "$GREEN" "  ✅ Registry check passes when ping fails"
+    else
+      print_status "$RED" "  ❌ Registry check failed when ping fails"
+      test_failures=$((test_failures + 1))
+    fi
+    if ( check_network >/dev/null ); then
+      print_status "$GREEN" "  ✅ Network check passes when ping fails"
+    else
+      print_status "$RED" "  ❌ Network check failed when ping fails"
+      test_failures=$((test_failures + 1))
+    fi
   else
-    print_status "$RED" "  ❌ Registry check failed when ping fails"
-    test_failures=$((test_failures + 1))
-  fi
-  if ( check_network >/dev/null ); then
-    print_status "$GREEN" "  ✅ Network check passes when ping fails"
-  else
-    print_status "$RED" "  ❌ Network check failed when ping fails"
-    test_failures=$((test_failures + 1))
+    print_status "$YELLOW" "  ⚠️  Registry checks skipped: the npm registry is unreachable"
   fi
   PATH="$saved_path"
   rm -rf "$ping_stub_dir"
+
+  if ( npm_config_registry="http://127.0.0.1:9" check_prerequisites >/dev/null ); then
+    print_status "$RED" "  ❌ Unreachable registry was reported reachable"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ Unreachable registry check fails"
+  fi
+
+  mirror_out=$(npm_config_registry="https://registry.npmmirror.com/" check_network 2>&1) || true
+  if printf '%s\n' "$mirror_out" | grep -q "registry.npmmirror.com"; then
+    print_status "$GREEN" "  ✅ Mirror registry check passes"
+  else
+    print_status "$RED" "  ❌ Mirror registry check failed"
+    test_failures=$((test_failures + 1))
+  fi
   
   # Report results
   if [ $test_failures -eq 0 ]; then
