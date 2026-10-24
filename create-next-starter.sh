@@ -690,18 +690,70 @@ detect_environment() {
   fi
 }
 
-npm_registry_reachable() {
+# npm config get refuses to print a registry URL that contains credentials.
+configured_registry() {
   local registry=""
+  local file=""
+  local line=""
+  if [ -n "${npm_config_registry:-}" ]; then
+    printf '%s\n' "$npm_config_registry"
+    return 0
+  fi
+  if [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then
+    printf '%s\n' "$NPM_CONFIG_REGISTRY"
+    return 0
+  fi
   if command -v npm >/dev/null 2>&1; then
     registry=$(npm config get registry 2>/dev/null) || registry=""
   fi
+  if [ -n "$registry" ]; then
+    printf '%s\n' "$registry"
+    return 0
+  fi
+  for file in "./.npmrc" "${HOME:-}/.npmrc"; do
+    [ -f "$file" ] || continue
+    line=$(grep -E '^[[:space:]]*registry[[:space:]]*=' "$file" 2>/dev/null | tail -n 1 || true)
+    [ -n "$line" ] || continue
+    line="${line#*=}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    case "$line" in
+      \"*\") line="${line#\"}"; line="${line%\"}" ;;
+      \'*\') line="${line#\'}"; line="${line%\'}" ;;
+    esac
+    [ -n "$line" ] || continue
+    printf '%s\n' "$line"
+    return 0
+  done
+  return 1
+}
+
+mask_registry() {
+  local url="$1"
+  case "$url" in
+    *://*@*)
+      printf '%s://***@%s\n' "${url%%://*}" "${url#*@}"
+      ;;
+    *)
+      printf '%s\n' "$url"
+      ;;
+  esac
+}
+
+npm_registry_reachable() {
+  local registry=""
+  local code=""
+  registry=$(configured_registry) || registry=""
   if [ -z "$registry" ]; then
     registry="https://registry.npmjs.org/"
   fi
   registry="${registry%/}"
-  NPM_REGISTRY="$registry"
+  NPM_REGISTRY=$(mask_registry "$registry")
   if command -v curl >/dev/null 2>&1; then
-    curl -fsS -m 5 "${registry}/-/ping" >/dev/null 2>&1 || return 1
+    code=$(curl -sS -o /dev/null -m 5 -w '%{http_code}' "${registry}/-/ping" 2>/dev/null) || true
+    case "$code" in
+      ""|000) return 1 ;;
+    esac
     return 0
   fi
   # fetch-timeout does not abort a hung TCP connect.
