@@ -47,11 +47,12 @@ test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeo
   const tmp = path.join(root, 'tmp');
   const bin = path.join(root, 'bin');
   const pidfile = path.join(root, 'stub.pid');
+  const debugFile = path.join(root, 'stub-debug.log');
   await Promise.all([fs.mkdir(tmp), fs.mkdir(bin)]);
   const pyShim = path.join(bin, 'python3');
   await fs.writeFile(
     pyShim,
-    '#!/bin/sh\nprintf "%s\\n" "$$" > "$REGISTRY_TEST_PID_FILE"\nexec "$REGISTRY_TEST_PYTHON" "$@"\n',
+    '#!/bin/sh\nprintf "%s\\n" "$$" > "$REGISTRY_TEST_PID_FILE"\nprintf "Python: %s\\n" "$REGISTRY_TEST_PYTHON" >> "$REGISTRY_TEST_DEBUG_FILE"\nexec "$REGISTRY_TEST_PYTHON" "$@" 2>> "$REGISTRY_TEST_DEBUG_FILE"\n',
     { mode: 0o755 },
   );
 
@@ -63,6 +64,7 @@ test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeo
       TMP: tmp,
       PATH: bin + path.delimiter + process.env.PATH,
       REGISTRY_TEST_PID_FILE: pidfile,
+      REGISTRY_TEST_DEBUG_FILE: debugFile,
       REGISTRY_TEST_PYTHON: realPython,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -90,7 +92,12 @@ test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeo
       }
       return false;
     });
-    assert.equal(ready, true, 'local Python registry stub did not start\n' + out);
+    if (!ready) {
+      const diagnostics = await fs.readFile(debugFile, 'utf8').catch(() => '(no Python wrapper diagnostic)');
+      const locations = await fs.readdir(tmp).catch(() => []);
+      assert.fail('local Python registry stub did not start\n' + out +
+        '\nPython wrapper: ' + diagnostics + '\nTemp directories: ' + JSON.stringify(locations));
+    }
     assert.ok(stubPid > 0);
 
     // Do not signal the process group: the test must reproduce SIGTERM to
