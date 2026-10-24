@@ -3069,6 +3069,214 @@ script_self_test() {
   chmod +x "$ping_stub_dir/ping"
   saved_path="$PATH"
 
+  # Security regression: invalid URLs must never become curl options or
+  # additional directives in curl's config input.
+  if ( npm_config_registry='-K./payload' npm_registry_reachable ) >/dev/null 2>&1 ||
+     ( npm_config_registry='http://safe.example/"' npm_registry_reachable ) >/dev/null 2>&1 ||
+     ( npm_config_registry=
+  if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:9" check_prerequisites >/dev/null ); then
+    print_status "$RED" "  ❌ Unreachable registry was reported reachable"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ Unreachable registry check fails"
+  fi
+
+  stub_pid=""
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_status "$YELLOW" "  ⚠️  Local registry checks skipped: python3 is not installed"
+  else
+    stub_dir=$(mktemp -d)
+    portfile="$stub_dir/port"
+    logfile="$stub_dir/requests"
+    cat > "$stub_dir/server.py" <<'PY'
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import sys
+
+portfile = sys.argv[1]
+logfile = sys.argv[2]
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        auth = self.headers.get("Authorization", "")
+        with open(logfile, "a") as handle:
+            handle.write(self.path + " " + auth + "\n")
+        code = 401 if self.path.startswith("/private") else 200
+        body = b"{}"
+        self.send_response(code)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+with open(portfile, "w") as handle:
+    handle.write(str(server.server_address[1]))
+server.serve_forever()
+PY
+    python3 "$stub_dir/server.py" "$portfile" "$logfile" >"$stub_dir/server.out" 2>&1 &
+    stub_pid=$!
+    ready=0
+    i=0
+    while [ "$i" -lt 5 ]; do
+      if [ -s "$portfile" ]; then
+        ready=1
+        break
+      fi
+      sleep 1
+      i=$((i + 1))
+    done
+    if [ "$ready" -ne 1 ]; then
+      print_status "$RED" "  ❌ Local registry stub did not start"
+      test_failures=$((test_failures + 1))
+    else
+      port=$(cat "$portfile")
+      PATH="$ping_stub_dir:$PATH"
+      if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:${port}/" check_prerequisites >/dev/null ); then
+        print_status "$GREEN" "  ✅ Registry check passes when ping fails"
+      else
+        print_status "$RED" "  ❌ Registry check failed when ping fails"
+        test_failures=$((test_failures + 1))
+      fi
+      PATH="$saved_path"
+
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "127.0.0.1:${port}" >/dev/null; then
+        print_status "$GREEN" "  ✅ Local registry check passes"
+      else
+        print_status "$RED" "  ❌ Local registry check failed"
+        test_failures=$((test_failures + 1))
+      fi
+
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:${port}/private" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "127.0.0.1:${port}/private" >/dev/null; then
+        print_status "$GREEN" "  ✅ HTTP 401 registry check passes"
+      else
+        print_status "$RED" "  ❌ HTTP 401 registry check failed"
+        test_failures=$((test_failures + 1))
+      fi
+
+      : > "$logfile"
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://user:s3cret@127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "s3cret" >/dev/null; then
+        print_status "$RED" "  ❌ Credentialed registry printed secrets"
+        test_failures=$((test_failures + 1))
+      elif printf '%s\n' "$check_out" | grep -F "***@127.0.0.1:${port}" >/dev/null \
+        && grep -F "Basic" "$logfile" >/dev/null; then
+        print_status "$GREEN" "  ✅ Credentialed registry check passes"
+      else
+        print_status "$RED" "  ❌ Credentialed registry check failed"
+        test_failures=$((test_failures + 1))
+      fi
+    fi
+    if [ -n "$stub_pid" ]; then
+      kill "$stub_pid" 2>/dev/null || true
+      wait "$stub_pid" 2>/dev/null || true
+    fi
+    rm -rf "$stub_dir"
+  fi
+  rm -rf "$ping_stub_dir"
+  
+  # Report results
+  if [ $test_failures -eq 0 ]; then
+    print_status "$GREEN" "  ✅ All self-tests passed"
+    return 0
+  else
+    print_status "$RED" "  ❌ $test_failures test(s) failed"
+    return 1
+  fi
+}
+
+# Function to source all our functions (for organization)
+source_functions() {
+  # All functions are already defined above in logical order:
+  # 1. Configuration and setup functions
+  # 2. Utility and helper functions  
+  # 3. Validation functions
+  # 4. Core functionality functions
+  # 5. Template and file creation functions
+  # 6. Progress and UI functions
+  # 7. Main execution function
+  
+  log_info "All functions loaded and ready"
+  
+  # Run self-test in verbose mode
+  if [ "$VERBOSE" = true ]; then
+    script_self_test
+  fi
+}
+
+# STEP 10.1: Complete Script Structure - Main Execution Flow
+main_execution() {
+  # Source all functions (they're already defined above)
+  source_functions
+  
+  # Parse command line arguments
+  parse_arguments "$@"
+
+  require_valid_app_name_format "$APP_NAME"
+  
+  # Show dry run summary if requested (exits if dry run)
+  show_dry_run_summary
+  
+  # Validate the app name with enhanced options
+  validate_app_name "$APP_NAME"
+  
+  # Execute the main workflow with comprehensive error handling
+  if ! main; then
+    log_error "Main execution failed"
+    exit 1
+  fi
+  
+  # Final success message
+  log_info "Script execution completed successfully"
+}
+
+# ============================================================================
+# SCRIPT ENTRY POINT - This is where everything starts
+# ============================================================================
+
+# Welcome message for verbose mode
+if [[ "${1:-}" == "--verbose" ]] || [[ "${2:-}" == "--verbose" ]] || [[ "${3:-}" == "--verbose" ]]; then
+  echo "🚀 Next.js Starter Script v${SCRIPT_VERSION} - Starting..."
+  echo "📝 Initializing with arguments: $*"
+fi
+
+# Run the complete script
+main_execution "$@"
+
+# ============================================================================
+# END OF SCRIPT
+# ============================================================================
+
+# Final status for verbose mode
+if [ "$VERBOSE" = true ]; then
+  echo ""
+  echo "🎯 Script execution completed at: $(date '+%Y-%m-%d %H:%M:%S')"
+  echo "📊 Check setup.log for detailed execution log (if available)"
+fi http://safe.example/\nurl = "https://attacker.example"' npm_registry_reachable ) >/dev/null 2>&1; then
+    print_status "$RED" "  ❌ Unsafe registry accepted"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ Unsafe registry values rejected"
+  fi
+
+  if [ "$(mask_registry 'https://u:FAKE@PW@host.example/npm/@scope/')" != 'https://***@host.example/npm/@scope/' ] ||
+     [ "$(mask_registry 'https://host.example/npm/@scope/')" != 'https://host.example/npm/@scope/' ]; then
+    print_status "$RED" "  ❌ Registry masking failed"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ Registry passwords and scoped paths masked safely"
+  fi
+
+  if [ "$(NPM_CONFIG_REGISTRY='http://upper.example/' npm_config_registry='http://lower.example/' configured_registry)" != 'http://upper.example/' ]; then
+    print_status "$RED" "  ❌ npm registry environment precedence mismatch"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ npm registry environment precedence respected"
+  fi
+
   if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:9" check_prerequisites >/dev/null ); then
     print_status "$RED" "  ❌ Unreachable registry was reported reachable"
     test_failures=$((test_failures + 1))
