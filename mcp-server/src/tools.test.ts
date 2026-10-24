@@ -172,16 +172,28 @@ describe('hosted mode', () => {
         run: runner.run,
       });
       assert.notEqual(result.isError, true);
-      assert.deepEqual(runner.calls, [
-        {
-          cwd: outputRoot,
-          args: ['--skip-convex', '--skip-clerk', '--template', 'minimal', '--', 'my-app'],
-        },
+      assert.equal(runner.calls.length, 1);
+      const firstCwd = runner.calls[0].cwd;
+      assert.equal(path.dirname(firstCwd), outputRoot);
+      assert.deepEqual(runner.calls[0].args, [
+        '--skip-convex', '--skip-clerk', '--template', 'minimal', '--', 'my-app',
       ]);
       assert.equal(runner.calls[0].args.includes('--force'), false);
-      assert.match(result.content[0].text, new RegExp(`Location: ${outputRoot}/my-app`));
-      const stat = await fs.stat(outputRoot);
-      assert.equal(stat.isDirectory(), true);
+      assert.ok(result.content[0].text.includes(`Location: ${firstCwd}/my-app`));
+      assert.equal((await fs.stat(firstCwd)).isDirectory(), true);
+
+      // Two callers choosing the same project name must never share a work directory.
+      const second = await dispatchTool({
+        name: 'create_nextjs_app',
+        args: { name: 'my-app', template: 'minimal', skipConvex: true, skipClerk: true },
+        config: hostedConfig(outputRoot),
+        run: runner.run,
+      });
+      assert.notEqual(second.isError, true);
+      assert.equal(runner.calls.length, 2);
+      assert.equal(path.dirname(runner.calls[1].cwd), outputRoot);
+      assert.notEqual(runner.calls[1].cwd, firstCwd);
+      assert.equal((await fs.stat(runner.calls[1].cwd)).isDirectory(), true);
     } finally {
       await fs.rm(outputRoot, { recursive: true, force: true });
     }
@@ -310,6 +322,8 @@ describe('server config', () => {
     assert.deepEqual(readServerConfig({ [HOSTED_ENV_FLAG]: '0' }), { mode: 'local' });
     assert.deepEqual(readServerConfig({ [HOSTED_ENV_FLAG]: 'false' }), { mode: 'local' });
     assert.deepEqual(readServerConfig({ [HOSTED_ENV_FLAG]: '' }), { mode: 'local' });
+    assert.throws(() => readServerConfig({ [HOSTED_ENV_FLAG]: 'tru' }), /Invalid NEXT_STARTER_MCP_HOSTED/);
+    assert.throws(() => readServerConfig({ [HOSTED_ENV_FLAG]: 'yes' }), /Invalid NEXT_STARTER_MCP_HOSTED/);
     const hosted = readServerConfig({ [HOSTED_ENV_FLAG]: '1' });
     const hostedWord = readServerConfig({ [HOSTED_ENV_FLAG]: ' TRUE ' });
     assert.equal(hosted.mode, 'hosted');
