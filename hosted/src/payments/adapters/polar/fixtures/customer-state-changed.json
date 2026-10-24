@@ -14,7 +14,7 @@
         "cancel_at_period_end": false,
         "current_period_start": "2026-03-01T00:00:00.000Z",
         "current_period_end": "2026-04-01T00:00:00.000Z",
-        "product_id": "prod_TBD_BY_BEN"
+        "product_id": "prod_TBD"
       }
     ]
   }

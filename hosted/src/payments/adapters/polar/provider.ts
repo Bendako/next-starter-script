@@ -16,12 +16,14 @@ export type PolarPaymentsOptions = {
   readonly webhookSecret: string;
   readonly products: readonly PolarProductConfig[];
   readonly client: PolarBillingClient;
+  readonly pastDueGraceSeconds?: number;
 };
 
 export function createPolarPaymentsProvider(options: PolarPaymentsOptions): PaymentsProvider {
   if (options.webhookSecret.length === 0) {
     throw new PaymentsError('Missing POLAR_WEBHOOK_SECRET');
   }
+  const pastDueGraceSeconds = graceSeconds(options.pastDueGraceSeconds);
   const products = indexProducts(options.products);
   const mirror = createMemoryEntitlementStore();
 
@@ -45,6 +47,8 @@ export function createPolarPaymentsProvider(options: PolarPaymentsOptions): Paym
     },
 
     async getSubscriptionStatus(userId: UserId): Promise<SubscriptionStatus> {
+      // Process-local and unbounded. A process that has not handled the webhook returns none.
+      // Durable status is EntitlementStore. This mirror stays private so a caller's applyUpdates is not a duplicate.
       const entitlement = await mirror.getEntitlement(userId);
       return entitlement?.subscription ?? { state: 'none' };
     },
@@ -55,6 +59,7 @@ export function createPolarPaymentsProvider(options: PolarPaymentsOptions): Paym
         headers: request.headers,
         secret: options.webhookSecret,
         productPlans: products.byProduct,
+        pastDueGraceSeconds,
       });
       await mirror.applyUpdates(updates);
       return updates;
@@ -82,9 +87,18 @@ export function createPolarPaymentsProviderFromConfig(config: PolarConfig): Paym
   return createPolarPaymentsProvider({
     webhookSecret: config.webhookSecret,
     products: config.products,
+    pastDueGraceSeconds: config.pastDueGraceSeconds,
     client: createPolarBillingClient({
       accessToken: config.accessToken,
       environment: config.environment,
     }),
   });
+}
+
+function graceSeconds(value: number | undefined): number {
+  const grace = value ?? 0;
+  if (!Number.isSafeInteger(grace) || grace < 0) {
+    throw new PaymentsError('POLAR_PAST_DUE_GRACE_SECONDS must be a non-negative integer');
+  }
+  return grace;
 }

@@ -7,19 +7,12 @@ import {
   type PolarSubscriptionFields,
 } from './map.js';
 
-type SubscriptionLike = {
-  readonly status: string;
-  readonly cancel_at_period_end: boolean;
-  readonly current_period_start: string;
-  readonly current_period_end: string;
-  readonly product_id: string;
-};
-
 export async function readPolarWebhook(input: {
   readonly rawBody: string;
   readonly headers: Readonly<Record<string, string>>;
   readonly secret: string;
   readonly productPlans: ReadonlyMap<string, PlanId>;
+  readonly pastDueGraceSeconds: number;
 }): Promise<readonly NormalizedWebhookEvent[]> {
   let event: Awaited<ReturnType<typeof webhooks.validateEvent>>;
   try {
@@ -47,6 +40,7 @@ export async function readPolarWebhook(input: {
     occurredAt: event.timestamp,
     subscriptions: subscriptionsFrom(event),
     productPlans: input.productPlans,
+    pastDueGraceSeconds: input.pastDueGraceSeconds,
   });
 }
 
@@ -57,9 +51,7 @@ function subscriptionsFrom(
     case 'customer.state_changed':
       // An empty active_subscriptions list has no plan id, so it cannot expire an entitlement.
       // subscription.revoked carries the plan and is what ends access.
-      return event.data.active_subscriptions.map((subscription) =>
-        fieldsFrom(subscription, stringOrNull(event.data.external_id)),
-      );
+      return customerStateSubscriptions(event.data);
     case 'subscription.created':
     case 'subscription.active':
     case 'subscription.updated':
@@ -71,19 +63,40 @@ function subscriptionsFrom(
     case 'subscription.paused':
     case 'subscription.resumed':
     case 'subscription.migrated':
-      return [fieldsFrom(event.data, stringOrNull(event.data.customer.external_id))];
+      return [subscriptionFields(event.data)];
     default:
       return [];
   }
 }
 
-function fieldsFrom(data: SubscriptionLike, externalCustomerId: string | null): PolarSubscriptionFields {
+function customerStateSubscriptions(data: unknown): readonly PolarSubscriptionFields[] {
+  if (!isRecord(data) || !Array.isArray(data.active_subscriptions)) {
+    throw new InvalidWebhookPayloadError();
+  }
+  const externalCustomerId = stringOrNull(data.external_id);
+  return data.active_subscriptions.map((subscription) => {
+    if (!isRecord(subscription)) {
+      throw new InvalidWebhookPayloadError();
+    }
+    return fieldsFrom(subscription, externalCustomerId);
+  });
+}
+
+function subscriptionFields(data: unknown): PolarSubscriptionFields {
+  if (!isRecord(data) || !isRecord(data.customer)) {
+    throw new InvalidWebhookPayloadError();
+  }
+  return fieldsFrom(data, stringOrNull(data.customer.external_id));
+}
+
+function fieldsFrom(data: Record<string, unknown>, externalCustomerId: string | null): PolarSubscriptionFields {
   if (
     typeof data.status !== 'string' ||
     typeof data.product_id !== 'string' ||
     typeof data.cancel_at_period_end !== 'boolean' ||
     typeof data.current_period_start !== 'string' ||
-    typeof data.current_period_end !== 'string'
+    typeof data.current_period_end !== 'string' ||
+    (data.past_due_at !== undefined && data.past_due_at !== null && typeof data.past_due_at !== 'string')
   ) {
     throw new InvalidWebhookPayloadError();
   }
@@ -94,10 +107,15 @@ function fieldsFrom(data: SubscriptionLike, externalCustomerId: string | null): 
     currentPeriodStart: data.current_period_start,
     currentPeriodEnd: data.current_period_end,
     externalCustomerId,
+    pastDueAt: typeof data.past_due_at === 'string' ? data.past_due_at : null,
   };
 }
 
-function stringOrNull(value: string | null | undefined): string | null {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 

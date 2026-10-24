@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Polar } from '@polar-sh/sdk/2026-10';
 
+import { hasAccess } from '../../access.js';
 import { PaymentsError, UnknownPlanError, InvalidWebhookPayloadError, InvalidWebhookSignatureError } from '../../errors.js';
 import { createMemoryEntitlementStore } from '../../memory-store.js';
 import {
@@ -16,7 +17,7 @@ import {
   userId,
 } from '../../types.js';
 import { billingClientFromPolar, type PolarBillingClient, type PolarCheckoutRequest } from './client.js';
-import { loadPolarConfig, POLAR_ACCESS_TOKEN, POLAR_ENVIRONMENT, POLAR_PRODUCT_ID_TBD_BY_BEN, POLAR_WEBHOOK_SECRET, TBD_BY_BEN_PLAN_ID } from './config.js';
+import { loadPolarConfig, POLAR_ACCESS_TOKEN, POLAR_ENVIRONMENT, POLAR_PAST_DUE_GRACE_SECONDS, POLAR_PRODUCT_ID_TBD, POLAR_WEBHOOK_SECRET, TBD_PLAN_ID } from './config.js';
 import { FIXTURE_PRODUCT_ID, FIXTURE_WEBHOOK_SECRET } from './harness.js';
 import { createPolarPaymentsProvider } from './provider.js';
 import { signPolarWebhook, WEBHOOK_SIGNATURE_HEADER } from './sign.js';
@@ -145,11 +146,70 @@ describe('Polar adapter', () => {
     expect((await provider.getSubscriptionStatus(owner)).state).toBe('active');
   });
 
-  it('keeps access for past_due, trialing, and a scheduled pause, and ends it when Polar revokes', async () => {
-    const provider = providerWithPlans();
-    const pastDue = await deliverBody(provider, subscriptionBody({ type: 'subscription.past_due', status: 'past_due' }), 'evt_past_due');
-    expect(pastDue[0]?.subscription.state).toBe('active');
+  it('expires past_due immediately when grace is 0, and until past_due plus grace otherwise', async () => {
+    const immediate = providerWithPlans();
+    const expiredNow = await deliverBody(
+      immediate,
+      subscriptionBody({ type: 'subscription.past_due', status: 'past_due' }),
+      'evt_past_due',
+    );
+    expect(expiredNow[0]?.subscription).toEqual(
+      expiredSubscription({
+        planId: knownPlan,
+        currentPeriodEnd: isoInstant('2026-03-01T00:00:00.000Z'),
+      }),
+    );
+    expect(hasAccess(expiredNow[0]?.subscription ?? null, new Date('2026-03-01T00:00:00.000Z'))).toBe(false);
+    expect(hasAccess(expiredNow[0]?.subscription ?? null, new Date('2026-03-31T00:00:00.000Z'))).toBe(false);
 
+    const extended = providerWithPlans(3600);
+    const duringGrace = await deliverBody(
+      extended,
+      subscriptionBody({
+        type: 'subscription.past_due',
+        status: 'past_due',
+        at: '2026-03-15T00:00:00.000Z',
+        pastDueAt: '2026-03-01T00:00:00.000Z',
+      }),
+      'evt_past_due_grace',
+    );
+    expect(duringGrace[0]?.occurredAt).toBe('2026-03-15T00:00:00.000Z');
+    expect(duringGrace[0]?.subscription).toEqual(
+      activeSubscription({
+        planId: knownPlan,
+        currentPeriodStart: isoInstant('2026-03-01T00:00:00.000Z'),
+        currentPeriodEnd: isoInstant('2026-03-01T01:00:00.000Z'),
+      }),
+    );
+    const status = duringGrace[0]?.subscription ?? null;
+    expect(hasAccess(status, new Date('2026-03-01T00:59:59.999Z'))).toBe(true);
+    expect(hasAccess(status, new Date('2026-03-01T01:00:00.000Z'))).toBe(false);
+    expect(hasAccess(status, new Date('2026-03-31T00:00:00.000Z'))).toBe(false);
+
+    const capped = providerWithPlans(40 * 24 * 60 * 60);
+    const throughPeriod = await deliverBody(
+      capped,
+      subscriptionBody({
+        type: 'subscription.past_due',
+        status: 'past_due',
+        pastDueAt: '2026-03-01T00:00:00.000Z',
+      }),
+      'evt_past_due_capped',
+    );
+    expect(throughPeriod[0]?.subscription).toEqual(
+      activeSubscription({
+        planId: knownPlan,
+        currentPeriodStart: isoInstant('2026-03-01T00:00:00.000Z'),
+        currentPeriodEnd: isoInstant('2026-04-01T00:00:00.000Z'),
+      }),
+    );
+    expect(hasAccess(throughPeriod[0]?.subscription ?? null, new Date('2026-03-31T00:00:00.000Z'))).toBe(true);
+    expect(hasAccess(throughPeriod[0]?.subscription ?? null, new Date('2026-04-01T00:00:00.000Z'))).toBe(false);
+    expect(() => providerWithPlans(-1)).toThrow(PaymentsError);
+  });
+
+  it('keeps access for trialing and a scheduled pause, and ends it when Polar pauses', async () => {
+    const provider = providerWithPlans();
     const trialing = await deliverBody(
       provider,
       subscriptionBody({ type: 'subscription.updated', status: 'trialing', at: '2026-03-02T00:00:00.000Z' }),
@@ -196,6 +256,39 @@ describe('Polar adapter', () => {
     );
     expect(unpaid[0]?.subscription.state).toBe('expired');
     expect(await fresh.getSubscriptionStatus(owner)).toEqual(unpaid[0]?.subscription);
+  });
+
+  it('rejects an unknown Polar status instead of acknowledging the webhook', async () => {
+    const provider = providerWithPlans();
+    await expect(
+      deliverBody(
+        provider,
+        subscriptionBody({ type: 'subscription.updated', status: 'billing_hold' }),
+        'evt_unknown_status',
+      ),
+    ).rejects.toBeInstanceOf(InvalidWebhookPayloadError);
+    expect(await provider.getSubscriptionStatus(owner)).toEqual({ state: 'none' });
+  });
+
+  it('rejects a signed payload that omits active_subscriptions or customer', async () => {
+    const provider = providerWithPlans();
+    const state = JSON.stringify({
+      type: 'customer.state_changed',
+      timestamp: '2026-03-01T00:00:00.000Z',
+      api_version: '2026-10',
+      data: { id: 'cus_fixture', external_id: 'user_1', email: 'buyer@example.com' },
+    });
+    await expect(deliverBody(provider, state, 'evt_malformed_state')).rejects.toBeInstanceOf(
+      InvalidWebhookPayloadError,
+    );
+    await expect(
+      deliverBody(
+        provider,
+        subscriptionBody({ type: 'subscription.updated', status: 'active', omitCustomer: true }),
+        'evt_malformed_customer',
+      ),
+    ).rejects.toBeInstanceOf(InvalidWebhookPayloadError);
+    expect(await provider.getSubscriptionStatus(owner)).toEqual({ state: 'none' });
   });
 
   it('ignores an unknown product and a subscription with no external id', async () => {
@@ -337,19 +430,37 @@ describe('Polar adapter', () => {
       [POLAR_ACCESS_TOKEN]: 'test-only-not-a-credential',
       [POLAR_WEBHOOK_SECRET]: 'test-only-not-a-credential',
       [POLAR_ENVIRONMENT]: 'sandbox',
-      [POLAR_PRODUCT_ID_TBD_BY_BEN]: FIXTURE_PRODUCT_ID,
+      [POLAR_PRODUCT_ID_TBD]: FIXTURE_PRODUCT_ID,
     });
     expect(config.environment).toBe('sandbox');
-    expect(config.products).toEqual([{ planId: planId(TBD_BY_BEN_PLAN_ID), productId: FIXTURE_PRODUCT_ID }]);
+    expect(config.pastDueGraceSeconds).toBe(0);
+    expect(config.products).toEqual([{ planId: planId(TBD_PLAN_ID), productId: FIXTURE_PRODUCT_ID }]);
+    const withGrace = loadPolarConfig({
+      [POLAR_ACCESS_TOKEN]: 'test-only-not-a-credential',
+      [POLAR_WEBHOOK_SECRET]: 'test-only-not-a-credential',
+      [POLAR_ENVIRONMENT]: 'sandbox',
+      [POLAR_PRODUCT_ID_TBD]: FIXTURE_PRODUCT_ID,
+      [POLAR_PAST_DUE_GRACE_SECONDS]: '3600',
+    });
+    expect(withGrace.pastDueGraceSeconds).toBe(3600);
     expect(() => loadPolarConfig({})).toThrow(PaymentsError);
     expect(() =>
       loadPolarConfig({
         [POLAR_ACCESS_TOKEN]: 'test-only-not-a-credential',
         [POLAR_WEBHOOK_SECRET]: 'test-only-not-a-credential',
         [POLAR_ENVIRONMENT]: 'staging',
-        [POLAR_PRODUCT_ID_TBD_BY_BEN]: FIXTURE_PRODUCT_ID,
+        [POLAR_PRODUCT_ID_TBD]: FIXTURE_PRODUCT_ID,
       }),
     ).toThrow(/POLAR_ENVIRONMENT/);
+    expect(() =>
+      loadPolarConfig({
+        [POLAR_ACCESS_TOKEN]: 'test-only-not-a-credential',
+        [POLAR_WEBHOOK_SECRET]: 'test-only-not-a-credential',
+        [POLAR_ENVIRONMENT]: 'sandbox',
+        [POLAR_PRODUCT_ID_TBD]: FIXTURE_PRODUCT_ID,
+        [POLAR_PAST_DUE_GRACE_SECONDS]: '-1',
+      }),
+    ).toThrow(/POLAR_PAST_DUE_GRACE_SECONDS/);
   });
 
   it('rejects two plans that share one product id', () => {
@@ -373,7 +484,7 @@ describe('Polar adapter', () => {
   });
 });
 
-function providerWithPlans() {
+function providerWithPlans(pastDueGraceSeconds?: number) {
   return createPolarPaymentsProvider({
     webhookSecret: FIXTURE_WEBHOOK_SECRET,
     products: [
@@ -388,6 +499,7 @@ function providerWithPlans() {
         return { url: 'https://example.com/portal' };
       },
     },
+    ...(pastDueGraceSeconds !== undefined ? { pastDueGraceSeconds } : {}),
   });
 }
 
@@ -417,24 +529,32 @@ function subscriptionBody(input: {
   readonly productId?: string;
   readonly externalId?: string | null;
   readonly pauseAtPeriodEnd?: boolean;
+  readonly pastDueAt?: string;
+  readonly omitCustomer?: boolean;
 }): string {
+  const data: Record<string, unknown> = {
+    id: 'sub_fixture',
+    status: input.status,
+    cancel_at_period_end: false,
+    pause_at_period_end: input.pauseAtPeriodEnd ?? false,
+    current_period_start: '2026-03-01T00:00:00.000Z',
+    current_period_end: '2026-04-01T00:00:00.000Z',
+    product_id: input.productId ?? FIXTURE_PRODUCT_ID,
+  };
+  if (input.pastDueAt !== undefined) {
+    data.past_due_at = input.pastDueAt;
+  }
+  if (input.omitCustomer !== true) {
+    data.customer = {
+      id: 'cus_fixture',
+      external_id: input.externalId === undefined ? 'user_1' : input.externalId,
+      email: 'buyer@example.com',
+    };
+  }
   return JSON.stringify({
     type: input.type,
     timestamp: input.at ?? '2026-03-01T00:00:00.000Z',
     api_version: '2026-10',
-    data: {
-      id: 'sub_fixture',
-      status: input.status,
-      cancel_at_period_end: false,
-      pause_at_period_end: input.pauseAtPeriodEnd ?? false,
-      current_period_start: '2026-03-01T00:00:00.000Z',
-      current_period_end: '2026-04-01T00:00:00.000Z',
-      product_id: input.productId ?? FIXTURE_PRODUCT_ID,
-      customer: {
-        id: 'cus_fixture',
-        external_id: input.externalId === undefined ? 'user_1' : input.externalId,
-        email: 'buyer@example.com',
-      },
-    },
+    data,
   });
 }

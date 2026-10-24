@@ -6,7 +6,7 @@ import { createPolarPaymentsProvider } from './provider.js';
 import type { PolarBillingClient } from './client.js';
 import { signPolarWebhook, WEBHOOK_SIGNATURE_HEADER } from './sign.js';
 
-export const FIXTURE_PRODUCT_ID = 'prod_TBD_BY_BEN';
+export const FIXTURE_PRODUCT_ID = 'prod_TBD';
 export const FIXTURE_WEBHOOK_SECRET = `whsec_${Buffer.from('test-only-not-a-credential').toString('base64')}`;
 
 const KNOWN_PLAN = planId('plan_contract');
