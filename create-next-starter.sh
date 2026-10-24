@@ -1290,7 +1290,6 @@ create_config_files() {
     create_convex_provider
   fi
   
-  # Only create the Clerk proxy if not skipped
   if [ "$SKIP_CLERK" = false ]; then
     create_clerk_middleware
   fi
