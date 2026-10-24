@@ -1218,21 +1218,33 @@ EOF
   # Create a basic Header component
   local header_imports="import { Button } from '@/components/ui/button'"
   local header_auth_section=""
+  local header_config_line=""
   
   if [ "$SKIP_CLERK" = false ]; then
-    header_imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+    header_imports="import { Suspense } from 'react'
+import { Show, SignInButton, UserButton } from '@clerk/nextjs'
+import { getServiceConfig } from '@/lib/config-detector'
 $header_imports"
-    header_auth_section="          <SignedOut>
-            <SignInButton>
-              <Button variant=\"outline\">Sign In</Button>
-            </SignInButton>
-          </SignedOut>
-          <SignedIn>
-            <div className=\"flex items-center gap-3\">
-              <span className=\"text-sm text-gray-600\">Welcome back!</span>
-              <UserButton />
-            </div>
-          </SignedIn>"
+    header_config_line=$'  const config = getServiceConfig();\n'
+    header_auth_section="          {config.hasClerk ? (
+            <Suspense>
+              <Show when=\"signed-out\">
+                <SignInButton>
+                  <Button variant=\"outline\">Sign In</Button>
+                </SignInButton>
+              </Show>
+              <Show when=\"signed-in\">
+                <div className=\"flex items-center gap-3\">
+                  <span className=\"text-sm text-gray-600\">Welcome back!</span>
+                  <UserButton />
+                </div>
+              </Show>
+            </Suspense>
+          ) : (
+            <Button variant=\"outline\">
+              Get Started
+            </Button>
+          )}"
   else
     header_auth_section="          <Button variant=\"outline\">
             Get Started
@@ -1243,7 +1255,7 @@ $header_imports"
 $header_imports
 
 export default function Header() {
-  return (
+$header_config_line  return (
     <header className="border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <div className="flex items-center space-x-2">
@@ -1278,7 +1290,7 @@ create_config_files() {
     create_convex_provider
   fi
   
-  # Only create Clerk middleware if not skipped
+  # Only create the Clerk proxy if not skipped
   if [ "$SKIP_CLERK" = false ]; then
     create_clerk_middleware
   fi
@@ -1599,33 +1611,33 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
 EOF
 
-  # Add ClerkProvider wrapper if Clerk is enabled
+  # Blank Clerk keys are a supported state. ClerkProvider throws without them.
   if [ "$SKIP_CLERK" = false ]; then
     cat >> src/app/layout.tsx << EOF
-    <ClerkProvider>
-EOF
-  fi
-
-  # Add the layout content
-  cat >> src/app/layout.tsx << EOF
+  const tree = (
 $layout_content
-EOF
+  );
 
-  # Close ClerkProvider if Clerk is enabled
-  if [ "$SKIP_CLERK" = false ]; then
+  if (
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+    process.env.CLERK_SECRET_KEY
+  ) {
+    return <ClerkProvider>{tree}</ClerkProvider>;
+  }
+
+  return tree;
+}
+EOF
+  else
     cat >> src/app/layout.tsx << EOF
-    </ClerkProvider>
-EOF
-  fi
-
-  # Close the function
-  cat >> src/app/layout.tsx << EOF
+  return (
+$layout_content
   );
 }
 EOF
+  fi
 
   print_status "$GREEN" "  ✅ Root layout (src/app/layout.tsx) created with app name: $APP_NAME"
 }
@@ -1645,7 +1657,8 @@ import { getServiceConfig } from '@/lib/config-detector'"
   fi
   
   if [ "$SKIP_CLERK" = false ]; then
-    imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+    imports="import { Suspense } from 'react'
+import { Show, SignInButton, UserButton } from '@clerk/nextjs'
 $imports"
   fi
   
@@ -1662,19 +1675,32 @@ $imports"
   # Build action buttons based on what's enabled
   local action_buttons=""
   if [ "$SKIP_CLERK" = false ]; then
-    action_buttons="            <SignedOut>
-              <SignInButton>
+    action_buttons="            {config.hasClerk ? (
+              <Suspense>
+                <Show when=\"signed-out\">
+                  <SignInButton>
+                    <Button size=\"lg\" className=\"bg-blue-600 hover:bg-blue-700\">
+                      Get Started - Sign In
+                    </Button>
+                  </SignInButton>
+                </Show>
+                <Show when=\"signed-in\">
+                  <div className=\"flex items-center gap-4\">
+                    <span className=\"text-green-600 font-medium\">✅ You&apos;re signed in!</span>
+                    <UserButton />
+                  </div>
+                </Show>
+              </Suspense>
+            ) : (
+              <>
                 <Button size=\"lg\" className=\"bg-blue-600 hover:bg-blue-700\">
-                  Get Started - Sign In
+                  Get Started
                 </Button>
-              </SignInButton>
-            </SignedOut>
-            <SignedIn>
-              <div className=\"flex items-center gap-4\">
-                <span className=\"text-green-600 font-medium\">✅ You're signed in!</span>
-                <UserButton />
-              </div>
-            </SignedIn>"
+                <Button variant=\"outline\" size=\"lg\">
+                  Learn More
+                </Button>
+              </>
+            )}"
   else
     action_buttons="            <Button size=\"lg\" className=\"bg-blue-600 hover:bg-blue-700\">
               Get Started
@@ -1742,7 +1768,7 @@ $imports"
     local last_index=$((${#features[@]} - 1))
     local last_feature="${features[$last_index]}"
     unset features[$last_index]
-    final_description="$final_description$(IFS=', '; echo "${features[*]}"), and $last_feature."
+    final_description="$final_description$(join_csv "${features[@]}"), and $last_feature."
   fi
   final_description="$final_description Start building your features right away!"
   
@@ -1810,21 +1836,33 @@ update_header_component() {
   # Build imports based on what's enabled
   local header_imports="import { Button } from '@/components/ui/button'"
   local header_auth_section=""
+  local header_config_line=""
   
   if [ "$SKIP_CLERK" = false ]; then
-    header_imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+    header_imports="import { Suspense } from 'react'
+import { Show, SignInButton, UserButton } from '@clerk/nextjs'
+import { getServiceConfig } from '@/lib/config-detector'
 $header_imports"
-    header_auth_section="          <SignedOut>
-            <SignInButton>
-              <Button variant=\"outline\">Sign In</Button>
-            </SignInButton>
-          </SignedOut>
-          <SignedIn>
-            <div className=\"flex items-center gap-3\">
-              <span className=\"text-sm text-gray-600\">Welcome back!</span>
-              <UserButton />
-            </div>
-          </SignedIn>"
+    header_config_line=$'  const config = getServiceConfig();\n'
+    header_auth_section="          {config.hasClerk ? (
+            <Suspense>
+              <Show when=\"signed-out\">
+                <SignInButton>
+                  <Button variant=\"outline\">Sign In</Button>
+                </SignInButton>
+              </Show>
+              <Show when=\"signed-in\">
+                <div className=\"flex items-center gap-3\">
+                  <span className=\"text-sm text-gray-600\">Welcome back!</span>
+                  <UserButton />
+                </div>
+              </Show>
+            </Suspense>
+          ) : (
+            <Button variant=\"outline\">
+              Get Started
+            </Button>
+          )}"
   else
     header_auth_section="          <Button variant=\"outline\">
             Get Started
@@ -1835,7 +1873,7 @@ $header_imports"
 $header_imports
 
 export default function Header() {
-  return (
+$header_config_line  return (
     <header className="border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <div className="flex items-center space-x-2">
@@ -1858,6 +1896,19 @@ EOF
   print_status "$GREEN" "  ✅ Header component updated with app branding"
 }
 
+# ${array[*]} joins on the first character of IFS, so IFS=', ' emits commas without spaces.
+join_csv() {
+  local joined=""
+  local part
+  for part in "$@"; do
+    if [ -n "$joined" ]; then
+      joined+=", "
+    fi
+    joined+="$part"
+  done
+  printf '%s' "$joined"
+}
+
 # Function to create package.json scripts section (template substitution example)
 create_custom_scripts() {
   print_status "$BLUE" "📝 Adding custom scripts to package.json..."
@@ -1877,7 +1928,7 @@ create_custom_scripts() {
     fi
     description_parts+=("TypeScript" "Tailwind CSS")
     
-    local description="A modern web application: $APP_NAME - built with $(IFS=', '; echo "${description_parts[*]}")"
+    local description="A modern web application: $APP_NAME - built with $(join_csv "${description_parts[@]}")"
     
     # Build scripts based on what's enabled
     local convex_scripts=""
@@ -2246,6 +2297,20 @@ export const getPostWithAuthor = query({
 });
 EOF
 
+  # Next typechecks every included .ts file. convex/_generated is created by
+  # `npx convex dev`, which needs a Convex login this script does not have.
+  if [ ! -f convex/_generated/server.js ] && [ ! -f convex/_generated/server.d.ts ]; then
+    node << 'EOF'
+const fs = require("fs");
+const file = "tsconfig.json";
+const ts = JSON.parse(fs.readFileSync(file, "utf8"));
+const exclude = Array.isArray(ts.exclude) ? ts.exclude.slice() : [];
+if (!exclude.includes("convex")) exclude.push("convex");
+ts.exclude = exclude;
+fs.writeFileSync(file, JSON.stringify(ts, null, 2) + "\n");
+EOF
+  fi
+
   print_status "$GREEN" "  ✅ Sample Convex functions created"
   print_status "$BLUE" "    • convex/users.ts - User management functions"
   print_status "$BLUE" "    • convex/posts.ts - Post management functions"
@@ -2293,11 +2358,12 @@ EOF
   print_status "$GREEN" "  ✅ Convex setup instructions added to .env.local"
 }
 
-# Function to create Clerk middleware
+# Function to create Clerk proxy (Next.js 16 file convention, formerly middleware.ts)
 create_clerk_middleware() {
-  print_status "$BLUE" "🔐 Creating Clerk middleware..."
+  print_status "$BLUE" "🔐 Creating Clerk proxy..."
   
-  cat > src/middleware.ts << 'EOF'
+  cat > src/proxy.ts << 'EOF'
+import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server'
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 
 // Define public routes that don't require authentication
@@ -2308,12 +2374,23 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)'
 ])
 
-export default clerkMiddleware(async (auth, request) => {
+const handleClerk = clerkMiddleware(async (auth, request) => {
   // Protect all routes that are not public
   if (!isPublicRoute(request)) {
     await auth.protect()
   }
 })
+
+export default function proxy(request: NextRequest, event: NextFetchEvent) {
+  if (
+    !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ||
+    !process.env.CLERK_SECRET_KEY
+  ) {
+    return NextResponse.next()
+  }
+
+  return handleClerk(request, event)
+}
 
 export const config = {
   matcher: [
@@ -2325,7 +2402,7 @@ export const config = {
 }
 EOF
 
-  print_status "$GREEN" "  ✅ Clerk middleware (src/middleware.ts) created"
+  print_status "$GREEN" "  ✅ Clerk proxy (src/proxy.ts) created"
 }
 
 # Function to orchestrate all external tools initialization
