@@ -27,6 +27,9 @@ jobs:
       
     - name: Test script self-check
       run: ./create-next-starter.sh --test
+
+    - name: Test registry stub cleanup after shell-only SIGTERM
+      run: node --test scripts/test-registry-sigterm.cjs
       
     - name: Test help command
       run: ./create-next-starter.sh --help
