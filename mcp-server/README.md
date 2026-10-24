@@ -193,6 +193,16 @@ npm run build
 npm run clean
 ```
 
+### Protocol checks
+`npm test` covers input validation in process. These two commands build `dist/index.js` and talk to that server over stdio.
+
+```bash
+npm run test:protocol:ci
+npm run test:protocol:qa
+```
+
+`test:protocol:ci` is the fast protocol and security set. `test:protocol:qa` runs `create_nextjs_app` and needs network.
+
 ## File Structure 📁
 
 ```
@@ -201,7 +211,8 @@ mcp-server/
 │   ├── index.ts          # Stdio server
 │   ├── tools.ts          # Tool definitions and input validation
 │   ├── run.ts            # Script execution
-│   └── tools.test.ts     # Input and argv tests
+│   ├── tools.test.ts     # Input and argv tests
+│   └── protocol.e2e.ts   # Stdio protocol checks
 ├── dist/                 # Built JavaScript (generated)
 ├── package.json          # Dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration

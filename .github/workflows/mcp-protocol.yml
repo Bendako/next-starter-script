@@ -1,0 +1,50 @@
+name: MCP protocol
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci-mcp:
+    name: ci/mcp
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install MCP dependencies
+        working-directory: mcp-server
+        run: npm ci
+
+      - name: Fast protocol and security checks
+        working-directory: mcp-server
+        run: npm run test:protocol:ci
+
+  qa-mcp:
+    name: qa/mcp
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install MCP dependencies
+        working-directory: mcp-server
+        run: npm ci
+
+      - name: End-to-end tool calls
+        working-directory: mcp-server
+        run: npm run test:protocol:qa

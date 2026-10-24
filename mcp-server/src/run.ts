@@ -1,8 +1,39 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import type { ScriptCall } from './tools.js';
 
-const TIMEOUT_MS = 600_000;
+const DEFAULT_TIMEOUT_MS = 600_000;
 const MAX_BUFFER_BYTES = 50 * 1024 * 1024;
+
+function scriptTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const raw = env.NEXT_STARTER_MCP_SCRIPT_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_TIMEOUT_MS;
+  if (!/^[1-9][0-9]*$/.test(raw)) return DEFAULT_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) return DEFAULT_TIMEOUT_MS;
+  return parsed;
+}
+
+function isErrno(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
+}
+
+function killProcessTree(child: ChildProcess): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  if (process.platform !== 'win32') {
+    try {
+      process.kill(-pid, 'SIGKILL');
+      return;
+    } catch (error) {
+      if (isErrno(error, 'ESRCH')) return;
+    }
+  }
+  try {
+    child.kill('SIGKILL');
+  } catch (error) {
+    if (!isErrno(error, 'ESRCH')) throw error;
+  }
+}
 
 export type ScriptOutput = {
   stdout: string;
@@ -45,12 +76,13 @@ export function runScript(
       shell: false,
       env: scriptEnv(env),
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     });
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
-    }, TIMEOUT_MS);
+      killProcessTree(child);
+    }, scriptTimeoutMs(env));
 
     const fail = (error: ScriptRunError) => {
       if (settled) return;
@@ -71,7 +103,7 @@ export function runScript(
       const next = current + (typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
       if (Buffer.byteLength(next, 'utf8') > MAX_BUFFER_BYTES) {
         overflow = true;
-        child.kill('SIGKILL');
+        killProcessTree(child);
         return current;
       }
       return next;
