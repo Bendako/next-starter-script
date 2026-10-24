@@ -87,3 +87,15 @@ jobs:
     - name: Test payments contracts
       working-directory: ./hosted
       run: npm test 
+  test-legacy-web-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify legacy server syntax
+        run: node --check web-app/server/index.js
+      - name: Enforce legacy generator production safety
+        run: node --test web-app/server/security.test.cjs
