@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       // Only proxy routes actually served by the legacy Express API.
-      // A catch-all /api rewrite shadows Next.js auth, billing and project routes.
+      // A catch-all /api rewrite can intercept API paths not owned by Express.
       {
         source: '/api/project/:path*',
         destination: 'http://localhost:3001/api/project/:path*',
