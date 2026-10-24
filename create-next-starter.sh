@@ -1063,7 +1063,18 @@ NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
 NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
 
+# Production only. true serves protected routes when either Clerk key is missing.
+# Otherwise those routes return 503. Public routes stay available either way.
+ALLOW_NO_AUTH=
+
 EOF
+  fi
+
+  if [ "$SKIP_CLERK" = false ]; then
+    cp .env.local .env.example
+    if [ -f .gitignore ] && ! grep -q '!.env.example' .gitignore; then
+      printf '\n!.env.example\n' >> .gitignore
+    fi
   fi
 
   cat >> .env.local << EOF
@@ -1218,21 +1229,33 @@ EOF
   # Create a basic Header component
   local header_imports="import { Button } from '@/components/ui/button'"
   local header_auth_section=""
+  local header_config_line=""
   
   if [ "$SKIP_CLERK" = false ]; then
-    header_imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+    header_imports="import { Suspense } from 'react'
+import { Show, SignInButton, UserButton } from '@clerk/nextjs'
+import { getServiceConfig } from '@/lib/config-detector'
 $header_imports"
-    header_auth_section="          <SignedOut>
-            <SignInButton>
-              <Button variant=\"outline\">Sign In</Button>
-            </SignInButton>
-          </SignedOut>
-          <SignedIn>
-            <div className=\"flex items-center gap-3\">
-              <span className=\"text-sm text-gray-600\">Welcome back!</span>
-              <UserButton />
-            </div>
-          </SignedIn>"
+    header_config_line=$'  const config = getServiceConfig();\n'
+    header_auth_section="          {config.hasClerk ? (
+            <Suspense>
+              <Show when=\"signed-out\">
+                <SignInButton>
+                  <Button variant=\"outline\">Sign In</Button>
+                </SignInButton>
+              </Show>
+              <Show when=\"signed-in\">
+                <div className=\"flex items-center gap-3\">
+                  <span className=\"text-sm text-gray-600\">Welcome back!</span>
+                  <UserButton />
+                </div>
+              </Show>
+            </Suspense>
+          ) : (
+            <Button variant=\"outline\">
+              Get Started
+            </Button>
+          )}"
   else
     header_auth_section="          <Button variant=\"outline\">
             Get Started
@@ -1243,7 +1266,7 @@ $header_imports"
 $header_imports
 
 export default function Header() {
-  return (
+$header_config_line  return (
     <header className="border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <div className="flex items-center space-x-2">
@@ -1278,7 +1301,6 @@ create_config_files() {
     create_convex_provider
   fi
   
-  # Only create Clerk middleware if not skipped
   if [ "$SKIP_CLERK" = false ]; then
     create_clerk_middleware
   fi
@@ -1543,7 +1565,8 @@ import \"./globals.css\";"
   
   if [ "$SKIP_CLERK" = false ]; then
     imports="$imports
-import { ClerkProvider } from '@clerk/nextjs'"
+import { ClerkProvider } from '@clerk/nextjs'
+import { readClerkRuntime, reportMissingClerk } from '../lib/clerk-runtime'"
   fi
   
   if [ "$SKIP_CONVEX" = false ]; then
@@ -1599,33 +1622,32 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
 EOF
 
-  # Add ClerkProvider wrapper if Clerk is enabled
+  # ClerkProvider throws when the publishable key is missing. The check is runtime.
   if [ "$SKIP_CLERK" = false ]; then
     cat >> src/app/layout.tsx << EOF
-    <ClerkProvider>
-EOF
-  fi
-
-  # Add the layout content
-  cat >> src/app/layout.tsx << EOF
+  const clerk = readClerkRuntime()
+  const tree = (
 $layout_content
-EOF
+  );
 
-  # Close ClerkProvider if Clerk is enabled
-  if [ "$SKIP_CLERK" = false ]; then
+  if (clerk.configured) {
+    return <ClerkProvider>{tree}</ClerkProvider>;
+  }
+
+  reportMissingClerk(clerk)
+  return tree;
+}
+EOF
+  else
     cat >> src/app/layout.tsx << EOF
-    </ClerkProvider>
-EOF
-  fi
-
-  # Close the function
-  cat >> src/app/layout.tsx << EOF
+  return (
+$layout_content
   );
 }
 EOF
+  fi
 
   print_status "$GREEN" "  ✅ Root layout (src/app/layout.tsx) created with app name: $APP_NAME"
 }
@@ -1645,7 +1667,8 @@ import { getServiceConfig } from '@/lib/config-detector'"
   fi
   
   if [ "$SKIP_CLERK" = false ]; then
-    imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+    imports="import { Suspense } from 'react'
+import { Show, SignInButton, UserButton } from '@clerk/nextjs'
 $imports"
   fi
   
@@ -1662,19 +1685,32 @@ $imports"
   # Build action buttons based on what's enabled
   local action_buttons=""
   if [ "$SKIP_CLERK" = false ]; then
-    action_buttons="            <SignedOut>
-              <SignInButton>
+    action_buttons="            {config.hasClerk ? (
+              <Suspense>
+                <Show when=\"signed-out\">
+                  <SignInButton>
+                    <Button size=\"lg\" className=\"bg-blue-600 hover:bg-blue-700\">
+                      Get Started - Sign In
+                    </Button>
+                  </SignInButton>
+                </Show>
+                <Show when=\"signed-in\">
+                  <div className=\"flex items-center gap-4\">
+                    <span className=\"text-green-600 font-medium\">✅ You&apos;re signed in!</span>
+                    <UserButton />
+                  </div>
+                </Show>
+              </Suspense>
+            ) : (
+              <>
                 <Button size=\"lg\" className=\"bg-blue-600 hover:bg-blue-700\">
-                  Get Started - Sign In
+                  Get Started
                 </Button>
-              </SignInButton>
-            </SignedOut>
-            <SignedIn>
-              <div className=\"flex items-center gap-4\">
-                <span className=\"text-green-600 font-medium\">✅ You're signed in!</span>
-                <UserButton />
-              </div>
-            </SignedIn>"
+                <Button variant=\"outline\" size=\"lg\">
+                  Learn More
+                </Button>
+              </>
+            )}"
   else
     action_buttons="            <Button size=\"lg\" className=\"bg-blue-600 hover:bg-blue-700\">
               Get Started
@@ -1742,7 +1778,7 @@ $imports"
     local last_index=$((${#features[@]} - 1))
     local last_feature="${features[$last_index]}"
     unset features[$last_index]
-    final_description="$final_description$(IFS=', '; echo "${features[*]}"), and $last_feature."
+    final_description="$final_description$(join_csv "${features[@]}"), and $last_feature."
   fi
   final_description="$final_description Start building your features right away!"
   
@@ -1810,21 +1846,33 @@ update_header_component() {
   # Build imports based on what's enabled
   local header_imports="import { Button } from '@/components/ui/button'"
   local header_auth_section=""
+  local header_config_line=""
   
   if [ "$SKIP_CLERK" = false ]; then
-    header_imports="import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs'
+    header_imports="import { Suspense } from 'react'
+import { Show, SignInButton, UserButton } from '@clerk/nextjs'
+import { getServiceConfig } from '@/lib/config-detector'
 $header_imports"
-    header_auth_section="          <SignedOut>
-            <SignInButton>
-              <Button variant=\"outline\">Sign In</Button>
-            </SignInButton>
-          </SignedOut>
-          <SignedIn>
-            <div className=\"flex items-center gap-3\">
-              <span className=\"text-sm text-gray-600\">Welcome back!</span>
-              <UserButton />
-            </div>
-          </SignedIn>"
+    header_config_line=$'  const config = getServiceConfig();\n'
+    header_auth_section="          {config.hasClerk ? (
+            <Suspense>
+              <Show when=\"signed-out\">
+                <SignInButton>
+                  <Button variant=\"outline\">Sign In</Button>
+                </SignInButton>
+              </Show>
+              <Show when=\"signed-in\">
+                <div className=\"flex items-center gap-3\">
+                  <span className=\"text-sm text-gray-600\">Welcome back!</span>
+                  <UserButton />
+                </div>
+              </Show>
+            </Suspense>
+          ) : (
+            <Button variant=\"outline\">
+              Get Started
+            </Button>
+          )}"
   else
     header_auth_section="          <Button variant=\"outline\">
             Get Started
@@ -1835,7 +1883,7 @@ $header_imports"
 $header_imports
 
 export default function Header() {
-  return (
+$header_config_line  return (
     <header className="border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <div className="flex items-center space-x-2">
@@ -1858,6 +1906,19 @@ EOF
   print_status "$GREEN" "  ✅ Header component updated with app branding"
 }
 
+# ${array[*]} joins on the first character of IFS, so IFS=', ' emits commas without spaces.
+join_csv() {
+  local joined=""
+  local part
+  for part in "$@"; do
+    if [ -n "$joined" ]; then
+      joined+=", "
+    fi
+    joined+="$part"
+  done
+  printf '%s' "$joined"
+}
+
 # Function to create package.json scripts section (template substitution example)
 create_custom_scripts() {
   print_status "$BLUE" "📝 Adding custom scripts to package.json..."
@@ -1877,12 +1938,12 @@ create_custom_scripts() {
     fi
     description_parts+=("TypeScript" "Tailwind CSS")
     
-    local description="A modern web application: $APP_NAME - built with $(IFS=', '; echo "${description_parts[*]}")"
+    local description="A modern web application: $APP_NAME - built with $(join_csv "${description_parts[@]}")"
     
     # Build scripts based on what's enabled
     local convex_scripts=""
     if [ "$SKIP_CONVEX" = false ]; then
-      convex_scripts="'setup:convex': 'npx convex dev --once',
+      convex_scripts="'setup:convex': 'npx convex dev --once && node scripts/remove-convex-tsconfig-exclude.mjs',
         'deploy:$APP_NAME': 'npm run build && npx convex deploy',"
     fi
     
@@ -1898,7 +1959,7 @@ create_custom_scripts() {
       
       // Add Convex scripts only if not skipped
       if ('$SKIP_CONVEX' === 'false') {
-        newScripts['setup:convex'] = 'npx convex dev --once';
+        newScripts['setup:convex'] = 'npx convex dev --once && node scripts/remove-convex-tsconfig-exclude.mjs';
         newScripts['deploy:$APP_NAME'] = 'npm run build && npx convex deploy';
       }
       
@@ -1910,6 +1971,113 @@ create_custom_scripts() {
       fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
     "
     
+    if [ "$SKIP_CONVEX" = false ]; then
+      mkdir -p scripts
+      cat > scripts/remove-convex-tsconfig-exclude.mjs << 'EOF'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+
+const generated =
+  existsSync('convex/_generated/server.js') ||
+  existsSync('convex/_generated/server.d.ts')
+
+if (!generated) {
+  console.log('convex/_generated is absent. tsconfig exclude left in place.')
+  process.exit(0)
+}
+
+const file = 'tsconfig.json'
+
+function isWhitespace(ch) {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r'
+}
+
+function skipComment(text, i) {
+  if (text[i] !== '/') return i
+  const n = text[i + 1]
+  if (n === '/') {
+    let j = i + 2
+    while (j < text.length && text[j] !== '\n') j += 1
+    return j
+  }
+  if (n === '*') {
+    let j = i + 2
+    while (j < text.length && !(text[j] === '*' && text[j + 1] === '/')) j += 1
+    return j + 2
+  }
+  return i
+}
+
+function parseJsonc(text) {
+  let out = ''
+  let i = 0
+  let hadComments = false
+  while (i < text.length) {
+    const c = text[i]
+    const n = text[i + 1]
+    if (c === '"') {
+      out += c
+      i += 1
+      while (i < text.length) {
+        const ch = text[i]
+        out += ch
+        i += 1
+        if (ch === '\\' && i < text.length) {
+          out += text[i]
+          i += 1
+          continue
+        }
+        if (ch === '"') break
+      }
+      continue
+    }
+    if (c === '/' && (n === '/' || n === '*')) {
+      hadComments = true
+      i = skipComment(text, i)
+      continue
+    }
+    if (c === ',') {
+      let j = i + 1
+      while (j < text.length) {
+        if (isWhitespace(text[j])) {
+          j += 1
+          continue
+        }
+        const afterComment = skipComment(text, j)
+        if (afterComment === j) break
+        hadComments = true
+        j = afterComment
+      }
+      if (text[j] === '}' || text[j] === ']') {
+        i += 1
+        continue
+      }
+    }
+    out += c
+    i += 1
+  }
+  return { value: JSON.parse(out), hadComments }
+}
+
+try {
+  const parsed = parseJsonc(readFileSync(file, 'utf8'))
+  const ts = parsed.value
+  const exclude = Array.isArray(ts.exclude) ? ts.exclude : []
+  const next = exclude.filter((item) => item !== 'convex')
+  if (next.length !== exclude.length) {
+    ts.exclude = next
+    writeFileSync(file, JSON.stringify(ts, null, 2) + '\n')
+    console.log('Removed convex from tsconfig exclude.')
+    if (parsed.hadComments) {
+      console.warn('comments in tsconfig.json were removed')
+    }
+  }
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error)
+  console.warn(`Left tsconfig.json unchanged (${message}). Remove "convex" from exclude by hand.`)
+}
+EOF
+    fi
+
     print_status "$GREEN" "  ✅ Custom scripts added to package.json"
   else
     print_status "$YELLOW" "  ⚠️  package.json not found, skipping custom scripts"
@@ -2024,8 +2192,35 @@ create_template_files() {
   update_header_component
   create_custom_scripts
   apply_template_customizations
+  append_project_readme
   
   print_status "$GREEN" "✅ All template files created with personalized content"
+}
+
+append_project_readme() {
+  if [ ! -f README.md ]; then
+    return 0
+  fi
+
+  if [ "$SKIP_CLERK" = false ]; then
+    cat >> README.md << 'EOF'
+
+## Authentication without Clerk keys
+
+Development starts when NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY or CLERK_SECRET_KEY is empty. Auth is off. The server logs one warning that names the missing key.
+
+Production returns 503 for protected routes when either key is missing. Public routes stay available. Set ALLOW_NO_AUTH=true to serve protected routes without Clerk. The server logs a warning when that opt-in is set.
+EOF
+  fi
+
+  if [ "$SKIP_CONVEX" = false ]; then
+    cat >> README.md << 'EOF'
+
+## Convex typecheck
+
+next build excludes convex/ until Convex codegen exists. npm run setup:convex runs codegen and removes that exclude after convex/_generated exists. If tsconfig.json has comments, that rewrite removes them and prints "comments in tsconfig.json were removed". If you run npx convex dev yourself, run node scripts/remove-convex-tsconfig-exclude.mjs afterward.
+EOF
+  fi
 }
 
 # STEP 6: Initialize External Tools
@@ -2246,6 +2441,20 @@ export const getPostWithAuthor = query({
 });
 EOF
 
+  # Next typechecks every included .ts file. convex/_generated is created by
+  # `npx convex dev`, which needs a Convex login this script does not have.
+  if [ ! -f convex/_generated/server.js ] && [ ! -f convex/_generated/server.d.ts ]; then
+    node << 'EOF'
+const fs = require("fs");
+const file = "tsconfig.json";
+const ts = JSON.parse(fs.readFileSync(file, "utf8"));
+const exclude = Array.isArray(ts.exclude) ? ts.exclude.slice() : [];
+if (!exclude.includes("convex")) exclude.push("convex");
+ts.exclude = exclude;
+fs.writeFileSync(file, JSON.stringify(ts, null, 2) + "\n");
+EOF
+  fi
+
   print_status "$GREEN" "  ✅ Sample Convex functions created"
   print_status "$BLUE" "    • convex/users.ts - User management functions"
   print_status "$BLUE" "    • convex/posts.ts - Post management functions"
@@ -2293,12 +2502,71 @@ EOF
   print_status "$GREEN" "  ✅ Convex setup instructions added to .env.local"
 }
 
-# Function to create Clerk middleware
+# Function to create Clerk proxy (Next.js 16 file convention, formerly middleware.ts)
 create_clerk_middleware() {
-  print_status "$BLUE" "🔐 Creating Clerk middleware..."
-  
-  cat > src/middleware.ts << 'EOF'
+  print_status "$BLUE" "🔐 Creating Clerk proxy..."
+
+  mkdir -p src/lib
+  cat > src/lib/clerk-runtime.ts << 'EOF'
+export type ClerkKeyName =
+  | 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY'
+  | 'CLERK_SECRET_KEY'
+
+export type ClerkRuntime = {
+  configured: boolean
+  missing: ClerkKeyName[]
+  production: boolean
+  allowNoAuth: boolean
+}
+
+const clerkKeys: ClerkKeyName[] = [
+  'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
+  'CLERK_SECRET_KEY',
+]
+
+// Next inlines process.env.NAME at build time. A computed key is read on each call.
+function runtimeEnv(name: string): string {
+  const value = process.env[name]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+export function readClerkRuntime(): ClerkRuntime {
+  const missing = clerkKeys.filter((name) => runtimeEnv(name) === '')
+  return {
+    configured: missing.length === 0,
+    missing,
+    production: runtimeEnv('NODE_ENV') === 'production',
+    allowNoAuth: runtimeEnv('ALLOW_NO_AUTH') === 'true',
+  }
+}
+
+const reportedKey = '__clerkAuthReported'
+
+export function reportMissingClerk(clerk: ClerkRuntime): void {
+  if (clerk.configured) return
+  const globalState = globalThis as Record<string, unknown>
+  if (globalState[reportedKey]) return
+  globalState[reportedKey] = true
+
+  const missing = clerk.missing.join(', ')
+  if (!clerk.production) {
+    console.warn(`[auth] Clerk auth is off in development. Missing ${missing}.`)
+    return
+  }
+  if (clerk.allowNoAuth) {
+    console.warn(`[auth] ALLOW_NO_AUTH=true. Clerk auth is off in production. Missing ${missing}.`)
+    return
+  }
+  console.error(
+    `[auth] Clerk auth is off in production. Missing ${missing}. Protected routes return 503. Set both Clerk keys, or set ALLOW_NO_AUTH=true to allow this.`
+  )
+}
+EOF
+
+  cat > src/proxy.ts << 'EOF'
+import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server'
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { readClerkRuntime, reportMissingClerk } from './lib/clerk-runtime'
 
 // Define public routes that don't require authentication
 const isPublicRoute = createRouteMatcher([
@@ -2308,12 +2576,25 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)'
 ])
 
-export default clerkMiddleware(async (auth, request) => {
+const handleClerk = clerkMiddleware(async (auth, request) => {
   // Protect all routes that are not public
   if (!isPublicRoute(request)) {
     await auth.protect()
   }
 })
+
+export default function proxy(request: NextRequest, event: NextFetchEvent) {
+  const clerk = readClerkRuntime()
+  if (clerk.configured) {
+    return handleClerk(request, event)
+  }
+
+  reportMissingClerk(clerk)
+  if (clerk.production && !clerk.allowNoAuth && !isPublicRoute(request)) {
+    return new NextResponse('Auth not configured', { status: 503 })
+  }
+  return NextResponse.next()
+}
 
 export const config = {
   matcher: [
@@ -2325,7 +2606,7 @@ export const config = {
 }
 EOF
 
-  print_status "$GREEN" "  ✅ Clerk middleware (src/middleware.ts) created"
+  print_status "$GREEN" "  ✅ Clerk proxy (src/proxy.ts) created"
 }
 
 # Function to orchestrate all external tools initialization
