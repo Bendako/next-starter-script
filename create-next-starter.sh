@@ -784,6 +784,14 @@ npm_registry_reachable() {
     return 1
   fi
   NPM_REGISTRY=$(mask_registry "$registry")
+  # curl cannot parse a password with a raw @ in the URL, while npm can.
+  # For multiple @ characters in the URL authority, let npm handle its
+  # own configuration/credential parsing rather than breaking reachability.
+  local registry_authority="${registry#*://}"
+  registry_authority="${registry_authority%%/*}"
+  case "$registry_authority" in
+    *@*@*) bounded_npm_ping; return $? ;;
+  esac
   if command -v curl >/dev/null 2>&1; then
     # -K - puts the URL on stdin instead of the process command line.
     # Only a validated URL can enter this quoted curl config directive.
