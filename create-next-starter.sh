@@ -3233,6 +3233,19 @@ PY
         print_status "$RED" "  ❌ Encoded @ password test failed"
         test_failures=$((test_failures + 1))
       fi
+
+      : > "$logfile"
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://user:p@ss@127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F 'p@ss' >/dev/null; then
+        print_status "$RED" "  ❌ Raw @ password leaked"
+        test_failures=$((test_failures + 1))
+      elif printf '%s\n' "$check_out" | grep -F "***@127.0.0.1:${port}" >/dev/null \
+        && grep -F "Basic" "$logfile" >/dev/null; then
+        print_status "$GREEN" "  ✅ Raw @ credentialed registry falls back to npm"
+      else
+        print_status "$RED" "  ❌ Raw @ registry npm fallback failed"
+        test_failures=$((test_failures + 1))
+      fi
     fi
     if [ -n "$stub_pid" ]; then
       kill "$stub_pid" 2>/dev/null || true
