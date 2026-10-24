@@ -20,7 +20,6 @@ export type PolarSubscriptionFields = {
   readonly externalCustomerId: string | null;
 };
 
-// past_due and trialing still grant access. Polar ends access on canceled, unpaid, or paused.
 const STATUS_KIND = {
   incomplete: 'pending',
   incomplete_expired: 'ended',
