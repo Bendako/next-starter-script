@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -22,7 +21,6 @@ echo $! > child.pid
 wait
 `;
 
-const execFileAsync = promisify(execFile);
 
 type Suite = 'ci' | 'qa';
 type IntegrationSkip = 'convex' | 'clerk';
@@ -372,6 +370,19 @@ if (suite === 'ci') {
   test('stdin-close-kills-process-group', { timeout: 20_000 }, async () => {
     await assertStdinCloseKillsGroup();
   });
+  test('qa-validation-timeout-kills-descendants', { timeout: 10_000 }, async () => {
+    if (process.platform === 'win32') return;
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-qa-timeout-'));
+    const script = path.join(root, 'linger.sh');
+    try {
+      await fs.writeFile(script, '#!/bin/bash\n(sleep 2 && touch finished) &\nwait\n', { mode: 0o755 });
+      await assert.rejects(runAppCommand(root, 'bash', [script], 350), /QA command timed out/);
+      await delay(2_300);
+      await assertAbsent(path.join(root, 'finished'));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 }
 
 function serverJs(): string {
@@ -558,21 +569,97 @@ async function verifyGeneratedApp(template: QaTemplate, root: string, text: stri
   }
 }
 
-async function runAppCommand(cwd: string, command: string, args: string[]): Promise<void> {
-  try {
-    await execFileAsync(command, args, {
-      cwd,
-      encoding: 'utf8',
-      env: { ...process.env, CI: 'true', NEXT_TELEMETRY_DISABLED: '1' },
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 8 * 60 * 1000,
-    });
-  } catch (error) {
-    const detail = error as { stdout?: string; stderr?: string; message?: string };
-    throw new Error(
-      `${command} ${args.join(' ')} failed in ${cwd}\n${detail.stdout ?? ''}\n${detail.stderr ?? ''}\n${detail.message ?? ''}`,
-    );
+// Keep credentials from a developer's shell or CI job out of generated
+// application commands and failure artifacts.
+function qaProcessEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { CI: 'true', NEXT_TELEMETRY_DISABLED: '1' };
+  for (const key of [
+    'PATH', 'HOME', 'TMPDIR', 'TMP', 'npm_config_cache', 'HTTP_PROXY',
+    'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
+  ]) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
   }
+  return env;
+}
+
+async function runAppCommand(
+  cwd: string,
+  command: string,
+  args: string[],
+  timeoutMs = 8 * 60 * 1000,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: qaProcessEnv(),
+      shell: false,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let bytes = 0;
+    let timedOut = false;
+    let overflow = false;
+    let settled = false;
+    const killGroup = () => {
+      if (child.pid !== undefined && process.platform !== 'win32') {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+          return;
+        } catch (error) {
+          if (!isErrno(error, 'ESRCH')) console.error('QA process group kill failed', error);
+        }
+      }
+      child.kill('SIGKILL');
+    };
+    const onSIGINT = () => { killGroup(); process.exit(130); };
+    const onSIGTERM = () => { killGroup(); process.exit(143); };
+    const onSIGHUP = () => { killGroup(); process.exit(129); };
+    process.once('SIGINT', onSIGINT);
+    process.once('SIGTERM', onSIGTERM);
+    if (process.platform !== 'win32') process.once('SIGHUP', onSIGHUP);
+    const clean = () => {
+      process.removeListener('SIGINT', onSIGINT);
+      process.removeListener('SIGTERM', onSIGTERM);
+      if (process.platform !== 'win32') process.removeListener('SIGHUP', onSIGHUP);
+      clearTimeout(timer);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clean();
+      if (!error) return resolve();
+      reject(new Error(
+        `${command} ${args.join(' ')} failed in ${cwd}\n${stdout}\n${stderr}\n${error.message}`,
+      ));
+    };
+    const collect = (chunk: Buffer | string, kind: 'stdout' | 'stderr') => {
+      if (overflow) return;
+      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk;
+      bytes += Buffer.byteLength(text);
+      if (bytes > 10 * 1024 * 1024) {
+        overflow = true;
+        killGroup();
+        return;
+      }
+      if (kind === 'stdout') stdout += text;
+      else stderr += text;
+    };
+    child.stdout.on('data', (chunk: Buffer | string) => collect(chunk, 'stdout'));
+    child.stderr.on('data', (chunk: Buffer | string) => collect(chunk, 'stderr'));
+    child.on('error', (error) => finish(error));
+    child.on('close', (code) => {
+      if (timedOut) return finish(new Error('QA command timed out'));
+      if (overflow) return finish(new Error('QA command output exceeded 10 MiB'));
+      if (code !== 0) return finish(new Error(`command exited with code ${code ?? 'unknown'}`));
+      finish();
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killGroup();
+    }, timeoutMs);
+  });
 }
 
 async function publishFailure(
