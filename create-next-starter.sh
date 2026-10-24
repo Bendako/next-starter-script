@@ -2980,45 +2980,122 @@ script_self_test() {
 
   local ping_stub_dir
   local saved_path
-  local mirror_out
+  local stub_dir
+  local stub_pid
+  local portfile
+  local logfile
+  local port
+  local ready
+  local i
+  local check_out
   ping_stub_dir=$(mktemp -d)
   printf '%s\n' '#!/bin/sh' 'exit 1' > "$ping_stub_dir/ping"
   chmod +x "$ping_stub_dir/ping"
   saved_path="$PATH"
-  if ( check_prerequisites >/dev/null ); then
-    PATH="$ping_stub_dir:$PATH"
-    if ( check_prerequisites >/dev/null ); then
-      print_status "$GREEN" "  ✅ Registry check passes when ping fails"
-    else
-      print_status "$RED" "  ❌ Registry check failed when ping fails"
-      test_failures=$((test_failures + 1))
-    fi
-    if ( check_network >/dev/null ); then
-      print_status "$GREEN" "  ✅ Network check passes when ping fails"
-    else
-      print_status "$RED" "  ❌ Network check failed when ping fails"
-      test_failures=$((test_failures + 1))
-    fi
-  else
-    print_status "$YELLOW" "  ⚠️  Registry checks skipped: the npm registry is unreachable"
-  fi
-  PATH="$saved_path"
-  rm -rf "$ping_stub_dir"
 
-  if ( npm_config_registry="http://127.0.0.1:9" check_prerequisites >/dev/null ); then
+  if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:9" check_prerequisites >/dev/null ); then
     print_status "$RED" "  ❌ Unreachable registry was reported reachable"
     test_failures=$((test_failures + 1))
   else
     print_status "$GREEN" "  ✅ Unreachable registry check fails"
   fi
 
-  mirror_out=$(npm_config_registry="https://registry.npmmirror.com/" check_network 2>&1) || true
-  if printf '%s\n' "$mirror_out" | grep -q "registry.npmmirror.com"; then
-    print_status "$GREEN" "  ✅ Mirror registry check passes"
+  stub_pid=""
+  if ! command -v python3 >/dev/null 2>&1; then
+    print_status "$YELLOW" "  ⚠️  Local registry checks skipped: python3 is not installed"
   else
-    print_status "$RED" "  ❌ Mirror registry check failed"
-    test_failures=$((test_failures + 1))
+    stub_dir=$(mktemp -d)
+    portfile="$stub_dir/port"
+    logfile="$stub_dir/requests"
+    cat > "$stub_dir/server.py" <<'PY'
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import sys
+
+portfile = sys.argv[1]
+logfile = sys.argv[2]
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        auth = self.headers.get("Authorization", "")
+        with open(logfile, "a") as handle:
+            handle.write(self.path + " " + auth + "\n")
+        code = 401 if self.path.startswith("/private") else 200
+        body = b"{}"
+        self.send_response(code)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+with open(portfile, "w") as handle:
+    handle.write(str(server.server_address[1]))
+server.serve_forever()
+PY
+    python3 "$stub_dir/server.py" "$portfile" "$logfile" >"$stub_dir/server.out" 2>&1 &
+    stub_pid=$!
+    ready=0
+    i=0
+    while [ "$i" -lt 5 ]; do
+      if [ -s "$portfile" ]; then
+        ready=1
+        break
+      fi
+      sleep 1
+      i=$((i + 1))
+    done
+    if [ "$ready" -ne 1 ]; then
+      print_status "$RED" "  ❌ Local registry stub did not start"
+      test_failures=$((test_failures + 1))
+    else
+      port=$(cat "$portfile")
+      PATH="$ping_stub_dir:$PATH"
+      if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:${port}/" check_prerequisites >/dev/null ); then
+        print_status "$GREEN" "  ✅ Registry check passes when ping fails"
+      else
+        print_status "$RED" "  ❌ Registry check failed when ping fails"
+        test_failures=$((test_failures + 1))
+      fi
+      PATH="$saved_path"
+
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "127.0.0.1:${port}" >/dev/null; then
+        print_status "$GREEN" "  ✅ Local registry check passes"
+      else
+        print_status "$RED" "  ❌ Local registry check failed"
+        test_failures=$((test_failures + 1))
+      fi
+
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:${port}/private" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "127.0.0.1:${port}/private" >/dev/null; then
+        print_status "$GREEN" "  ✅ HTTP 401 registry check passes"
+      else
+        print_status "$RED" "  ❌ HTTP 401 registry check failed"
+        test_failures=$((test_failures + 1))
+      fi
+
+      : > "$logfile"
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://user:s3cret@127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "s3cret" >/dev/null; then
+        print_status "$RED" "  ❌ Credentialed registry printed secrets"
+        test_failures=$((test_failures + 1))
+      elif printf '%s\n' "$check_out" | grep -F "***@127.0.0.1:${port}" >/dev/null \
+        && grep -F "Basic" "$logfile" >/dev/null; then
+        print_status "$GREEN" "  ✅ Credentialed registry check passes"
+      else
+        print_status "$RED" "  ❌ Credentialed registry check failed"
+        test_failures=$((test_failures + 1))
+      fi
+    fi
+    if [ -n "$stub_pid" ]; then
+      kill "$stub_pid" 2>/dev/null || true
+      wait "$stub_pid" 2>/dev/null || true
+    fi
+    rm -rf "$stub_dir"
   fi
+  rm -rf "$ping_stub_dir"
   
   # Report results
   if [ $test_failures -eq 0 ]; then
