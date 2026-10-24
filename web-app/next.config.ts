@@ -17,9 +17,19 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      // Only proxy routes actually served by the legacy Express API.
+      // A catch-all /api rewrite shadows Next.js auth, billing and project routes.
       {
-        source: '/api/:path*',
-        destination: 'http://localhost:3001/api/:path*',
+        source: '/api/project/:path*',
+        destination: 'http://localhost:3001/api/project/:path*',
+      },
+      {
+        source: '/api/templates',
+        destination: 'http://localhost:3001/api/templates',
+      },
+      {
+        source: '/api/health',
+        destination: 'http://localhost:3001/api/health',
       },
     ];
   },
