@@ -17,7 +17,8 @@
 >
 > API rewrites now proxy only the Express generator/templates/health routes;
 > Next.js' own `/api/projects`, `/api/subscription` and `/api/stripe`
-> routes are no longer shadowed. The project-record route checks Clerk
+> routes are no longer caught by the overbroad rewrite if unmatched. Existing
+> static Next routes already take precedence over array rewrites. The project-record route checks Clerk
 > authentication, so the old Express-to-Next POST without a session will
 > not record usage until a secure backend-to-backend flow is implemented.
 >
