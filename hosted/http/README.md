@@ -6,6 +6,8 @@ Streamable HTTP entry for the Next.js starter tools. The route is `/mcp`. It use
 
 The route stays closed unless `NEXT_STARTER_MCP_ALLOW_LOCAL` is `1` and `VERCEL` is not `1`. A localhost URL, `NODE_ENV=development`, and the old production flag do not open it. `npm run dev` and `npm start` bind to `127.0.0.1`. Also turn on Vercel Deployment Protection for the production deployment.
 
+`NEXT_STARTER_MCP_ALLOW_LOCAL=1` serves the tools with no authentication to anything that can reach the port. `next dev` and `next start` listen on every network interface unless you pass `-H 127.0.0.1`. `npm run dev` and `npm start` pass that bind. Running `next dev` or `next start` on their own, or with `-H 0.0.0.0`, exposes the tools on the network. Never set the flag on a self-hosted server. The flag together with `VERCEL_ENV=production` and without `VERCEL=1` leaves the route open.
+
 One process allows 60 requests per minute. Off Vercel every caller shares one key, because forwarded IP headers are not trusted. On Vercel the key is `x-real-ip` or the token client id. A Vercel Firewall rule for the deployment is `_TBD_`.
 
 ## Local
@@ -40,7 +42,7 @@ Names only. Do not commit values.
 | `NEXT_PUBLIC_CONVEX_URL` | Convex deployment URL. Read by the server. Safe to expose. |
 | `CONVEX_DEPLOY_KEY` | Build-time deploy key. Server and build only. Never prefix it with `NEXT_PUBLIC_`. |
 | `NEXT_STARTER_CONVEX_DEPLOY` | `1` opts the Vercel build into `convex deploy`. Ignored off Vercel. |
-| `NEXT_STARTER_MCP_ALLOW_LOCAL` | `1` opens the route for a process that is not on Vercel. `npm start` still binds to `127.0.0.1`. |
+| `NEXT_STARTER_MCP_ALLOW_LOCAL` | `1` opens the route with no authentication for anything that can reach the port. `next dev` and `next start` listen on every interface unless you pass `-H 127.0.0.1`. Do not use `-H 0.0.0.0`. Never set this on a self-hosted server. The flag with `VERCEL_ENV=production` and without `VERCEL=1` leaves the route open. `npm start` binds to `127.0.0.1`. |
 | `NEXT_STARTER_GENERATION_STUB` | `1` or `true` returns the stub create result and does not start a sandbox. |
 | `NEXT_STARTER_MCP_ORIGINS` | Comma-separated Origin allow-list. When unset, only localhost, `127.0.0.1`, and `::1` are allowed. A missing Origin is allowed. |
 
@@ -83,4 +85,4 @@ url = "https://YOUR_DEPLOYMENT_HOST/mcp"
 
 ## Auth and entitlements
 
-`authorizeToolCall` in `src/gate.ts` receives the request, the auth info from the MCP handler, the tool name, and the tool arguments. `identityAllows` returns false unless local use was opened explicitly. Identity checks and plan checks replace that function. This app does not implement them.
+`authorizeToolCall` in `src/gate.ts` receives the request, auth info, the tool name, and the tool arguments. `request.auth` and the handler auth info stay undefined until `withMcpAuth` lands in #13. `identityAllows` returns false unless the local flag opened the process. Identity checks and plan checks replace that function. This app does not implement them.

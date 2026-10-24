@@ -36,6 +36,16 @@ describe('authorizeToolCall', () => {
     }), true);
   });
 
+  test('the local flag stays open on a self-hosted process when VERCEL is unset', () => {
+    assert.equal(
+      toolCall('http://203.0.113.10/mcp', {
+        NEXT_STARTER_MCP_ALLOW_LOCAL: '1',
+        VERCEL_ENV: 'production',
+      }).allowed,
+      true,
+    );
+  });
+
   test('refuses a localhost URL, local dev, and the old production flag', () => {
     for (const env of [
       {},

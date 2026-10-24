@@ -15,8 +15,8 @@ function textOf(result) {
   return block && 'text' in block ? block.text : '';
 }
 
-function startServer(port, extraEnv) {
-  const child = spawn('npx', ['next', 'start', '-p', String(port), '-H', '127.0.0.1'], {
+function startServer(port, extraEnv, host = '127.0.0.1') {
+  const child = spawn('npx', ['next', 'start', '-p', String(port), '-H', host], {
     cwd: httpRoot,
     env: {
       ...process.env,
@@ -116,6 +116,29 @@ async function expectClosed(url, label) {
   }
 }
 
+async function expectGateClosed(url, label) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'script_help', arguments: {} },
+    }),
+  });
+  const body = await response.text();
+  console.log(`\n## ${label}`);
+  console.log(`status=${response.status}`);
+  console.log(body.slice(0, 200));
+  if (response.status !== 403) {
+    throw new Error(`${label} returned ${response.status}`);
+  }
+}
+
 async function callTool(client, name, args) {
   const result = await client.callTool({ name, arguments: args });
   const text = textOf(result);
@@ -130,6 +153,7 @@ async function callTool(client, name, args) {
 
 const port = 3457;
 const base = `http://127.0.0.1:${port}`;
+const lan = lanAddress();
 const server = startServer(port, { NEXT_STARTER_MCP_ALLOW_LOCAL: '1' });
 const closed = startServer(3460, {});
 const production = startServer(3458, {
@@ -143,6 +167,7 @@ const preview = startServer(3459, {
   VERCEL_ENV: 'preview',
   NEXT_STARTER_MCP_ALLOW_LOCAL: '1',
 });
+const wide = startServer(3461, { NEXT_STARTER_MCP_ALLOW_LOCAL: '' }, '0.0.0.0');
 
 try {
   await Promise.all([
@@ -150,9 +175,11 @@ try {
     waitForServer(closed, 'http://127.0.0.1:3460'),
     waitForServer(production, 'http://127.0.0.1:3458'),
     waitForServer(preview, 'http://127.0.0.1:3459'),
+    waitForServer(wide, `http://${lan}:3461`),
   ]);
   await expectClosed('http://127.0.0.1:3460/mcp', 'no local allow');
-  await expectClosed(`http://${lanAddress()}:${port}/mcp`, 'non-loopback');
+  await expectClosed(`http://${lan}:${port}/mcp`, 'loopback bind');
+  await expectGateClosed(`http://${lan}:3461/mcp`, 'non-loopback gate');
   await expectClosed('http://127.0.0.1:3458/mcp', 'production closed');
   await expectClosed('http://127.0.0.1:3459/mcp', 'preview closed');
 
