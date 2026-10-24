@@ -281,6 +281,16 @@ export async function dispatchTool(options: {
     const output = await options.run(prepared.call);
     return textResult(renderSuccess(prepared, output), false);
   } catch (error) {
+    if (prepared.tool === 'create_nextjs_app' && options.config.mode === 'hosted') {
+      // Workspaces are owned by one request; failed generations must not
+      // exhaust disk space or leak partially created project contents.
+      // Successful workspaces are kept for the delivery layer to package.
+      try {
+        await fs.rm(prepared.workingDirectory, { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.error('Failed to remove hosted workspace after error:', cleanupError);
+      }
+    }
     return textResult(renderFailure(prepared, error), true);
   }
 }
