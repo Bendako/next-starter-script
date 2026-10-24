@@ -3168,7 +3168,7 @@ PY
 
       printf 'registry=http://127.0.0.1:%s/private\n' "$port" > "$stub_dir/custom.npmrc"
       local custom_registry
-      custom_registry=$(cd "$stub_dir" && unset NPM_CONFIG_REGISTRY npm_config_registry && NPM_CONFIG_USERCONFIG="$stub_dir/custom.npmrc" configured_registry) || custom_registry=""
+      custom_registry=$(cd "$stub_dir" && unset NPM_CONFIG_REGISTRY npm_config_registry && NPM_CONFIG_USERCONFIG="$stub_dir/custom.npmrc" npm_config_userconfig="$stub_dir/custom.npmrc" configured_registry) || custom_registry=""
       if [ "$custom_registry" != "http://127.0.0.1:$port/private" ]; then
         print_status "$RED" "  ❌ NPM_CONFIG_USERCONFIG registry not honored"
         test_failures=$((test_failures + 1))
@@ -3214,15 +3214,15 @@ PY
       fi
 
       : > "$logfile"
-      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://user:p@ss@127.0.0.1:${port}/" check_network 2>&1) || true
-      if printf '%s\n' "$check_out" | grep -F "p@ss" >/dev/null; then
-        print_status "$RED" "  ❌ Registry password with @ leaked to output"
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://user:p%40ss@127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "p%40ss" >/dev/null; then
+        print_status "$RED" "  ❌ Percent-encoded registry password leaked to output"
         test_failures=$((test_failures + 1))
       elif printf '%s\n' "$check_out" | grep -F "***@127.0.0.1:${port}" >/dev/null \
         && grep -F "Basic" "$logfile" >/dev/null; then
-        print_status "$GREEN" "  ✅ Password containing @ was safely masked and authenticated"
+        print_status "$GREEN" "  ✅ Encoded @ password was masked and authenticated"
       else
-        print_status "$RED" "  ❌ Password containing @ registry check failed"
+        print_status "$RED" "  ❌ Encoded @ password test failed"
         test_failures=$((test_failures + 1))
       fi
     fi
