@@ -4,7 +4,6 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
 
 jobs:
   test-script:
@@ -59,4 +58,31 @@ jobs:
       
     - name: Test MCP server
       working-directory: ./mcp-server
+      run: npm test
+
+  test-payments:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install hosted dependencies
+      working-directory: ./hosted
+      run: npm ci
+
+    - name: Lint hosted payments
+      working-directory: ./hosted
+      run: npm run lint
+
+    - name: Build hosted payments
+      working-directory: ./hosted
+      run: npm run build
+
+    - name: Test payments contracts
+      working-directory: ./hosted
       run: npm test 
