@@ -1,0 +1,28 @@
+{
+  "name": "hosted",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Hosted payments core. Provider HTTP and the database stay behind ports.",
+  "type": "module",
+  "exports": {
+    "./payments": "./src/payments/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}
