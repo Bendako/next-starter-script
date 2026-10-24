@@ -19,4 +19,8 @@ Payment webhooks must verify signatures, handle repeated/out-of-order events ide
 - When changing the script, MCP tools or hosted transport, add tests for both success and failure/denial paths.
 - Prove generated apps actually typecheck and build in their selected templates. Do not call an untested template "production-ready".
 - Treat `web-app/` as a legacy prototype; don't re-enable generation or checkout without fixing server-side authentication, Prisma model mismatches and billing webhooks.
-- No automatic merges to `main`. Human review and passing required checks are separate release gates.
+- Follow [the merge policy](docs/MERGE_POLICY.md) and attach a decision packet to every PR before merging. Review checks are tied to the **exact head SHA**, not just the branch name.
+- Low-risk **routine** PRs may be merged under the repository owner's standing authorization **only after** current-head CI, Codex review, open-thread disposition, compatibility and rollback gates pass. Never bypass GitHub branch protection.
+- **Sensitive** PRs always need the owner's explicit approval for the specific PR and current commit. This includes installer/network and credentials, subprocess lifecycle, auth, billing, sandbox, security controls, CI permissions, and edits to merge policy. PR #29 and PR #30 are sensitive despite passing their latest checks.
+- For sensitive PR approval, prepare the Hebrew-language decision packet with impact, benefits, unresolved findings, exact CI/Codex links, confidence, dependencies, rollout/rollback, alternatives and a clear merge/hold recommendation; see [#29/#30 assessment](docs/PR_29_30_MERGE_ASSESSMENT_2026-10-24.md).
+- GitHub automation is not installed by this document. An assistant's runtime permission and a passing CI job are not substitutes for required reviews.
