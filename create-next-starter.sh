@@ -146,8 +146,9 @@ cleanup_self_test_resources() {
 
 # Comprehensive cleanup function
 cleanup() {
-  cleanup_self_test_resources
+  # Preserve the original exit status before cleanup commands overwrite $?.
   local exit_code=$?
+  cleanup_self_test_resources
   
   if [ $exit_code -ne 0 ] && [ "$CLEANUP_NEEDED" = true ]; then
     print_status "$YELLOW" ""
