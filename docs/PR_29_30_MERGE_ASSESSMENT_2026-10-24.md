@@ -1,10 +1,12 @@
 # Merge decision packet: PR #30 and PR #29
 
+> **Update (2026-10-24):** PR #30's self-test SIGTERM cleanup finding was fixed on commit `8775191a`. [CI passed](https://github.com/Bendako/next-starter-script/actions/runs/40116733115) across Ubuntu/macOS Node 18/20/21, MCP and payments. The old review threads were answered and resolved; a fresh Codex review of this SHA has been requested. **No merge to main has occurred.** #29 remains a Draft stacked on #30 and should not be retargeted or merged until #30 receives explicit approval and lands.
+
 **Snapshot: 2026-10-24.** Verify the exact head SHA, current GitHub state, CI, Codex reviews and unresolved threads again before any merge. Recommendations below are not merge authorization.
 
 ## Executive decision
 
-1. **PR #30 first; recommend owner approval only after acknowledging/fixing the remaining self-test SIGTERM cleanup risk.** Security hardening and CI are solid, but this touches untrusted npm config, credential handling and connectivity for every generated app. Sensitive under policy. It is not a blanket security certification.
+1. **PR #30 first; shell-only SIGTERM cleanup has now been fixed and CI is green.** A fresh Codex review on the final head and explicit owner approval are the remaining merge gates. The installer still touches untrusted npm config, credential handling and connectivity for every generated app. It is not a blanket security certification.
 2. **PR #29 second; do not merge yet.** It is stacked on #30, remains Draft and changes subprocess lifetime/shutdown semantics. After #30 is merged, retarget/rebase #29 on `main`, rerun CI and protocol E2E on the integrated base, inspect unresolved discussion threads and obtain explicit owner approval for the exact updated head.
 3. Neither approval nor merging of #30 authorizes merging #29 or #34. `main` is unchanged at the snapshot.
 
@@ -13,16 +15,16 @@
 | Decision input | PR #30 | PR #29 |
 | --- | --- | --- |
 | Link | [#30 — npm registry HTTPS](https://github.com/Bendako/next-starter-script/pull/30) | [#29 — MCP stdio protocol and E2E](https://github.com/Bendako/next-starter-script/pull/29) |
-| Head | `92b50b6ea8c7b2a8efb16fd2cd097328970ac414` | `1171e4cc3928f0842985aaa6d71d35add2ddbac9` |
+| Head | `8775191a52cbbcfa249f9afa6e0de1720731d0e6` | `1171e4cc3928f0842985aaa6d71d35add2ddbac9` |
 | Base | `main` | `cursor/https-registry-check-731d` (PR #30 head) |
 | Draft | No | Yes |
-| Diff versus current PR base | 1 file, +315/−16 | 9 files, +987/−13 |
+| Diff versus current PR base | 3 files (script, SIGTERM regression, CI workflow); inspect fresh GitHub diff for final line counts | 9 files, +987/−13 |
 | Risk class | Sensitive: installer, proxy, untrusted npm config, credentials | Sensitive: process groups, shutdown, filesystem execution, CI workflow |
-| Latest green CI | [40112945084](https://github.com/Bendako/next-starter-script/actions/runs/40112945084) | [40113803016](https://github.com/Bendako/next-starter-script/actions/runs/40113803016) |
+| Latest green CI | [40116733115](https://github.com/Bendako/next-starter-script/actions/runs/40116733115) | [40113803016](https://github.com/Bendako/next-starter-script/actions/runs/40113803016) |
 | Protocol E2E | Not separately run on #30 alone | [40113803055](https://github.com/Bendako/next-starter-script/actions/runs/40113803055) |
-| Codex reviewed exact SHA | Yes; latest review says no major findings | Yes; latest review says no major findings |
-| Unresolved historical discussion | 2 current non-blocking threads | 5 current threads including process-shutdown concerns |
-| Recommendation | **Approve conditionally, not an unconditional auto-merge** | **Hold, integrate and revalidate** |
+| Codex reviewed exact SHA | Review requested on new head; pending at update | Yes; latest review says no major findings |
+| Unresolved historical discussion | Previously open reviewer concerns now documented and resolved; verify no new findings | 5 current threads including process-shutdown concerns |
+| Recommendation | **Conditional go once latest Codex clears and owner approves exact head** | **Hold, integrate and revalidate** |
 
 ## PR #30 — from ICMP probe to safe npm registry reachability
 
@@ -34,14 +36,14 @@
 
 **Residual risks:**
 - A 401/403 response proves host reachability only, not that a package install can authenticate or that dependencies can be fetched. No real private-registry integration test or all-proxy test was established in this memo.
-- An **open review** documents that SIGTERM of the shell self-test may orphan its local Python stub/temp directory. Not a typical production app-creation path, but a cleanup/CI operational risk; resolve it or explicitly accept with cleanup mitigation before approving.
+- The SIGTERM orphan risk was addressed: global EXIT cleanup reaps the Python test server and both self-test temp directories, preserving the original exit code. A deterministic subprocess stand-in regression runs on Linux/macOS and the final CI matrix passed. Remaining caveat: the regression specifically covers shell-only SIGTERM, not every possible termination mode (e.g., SIGKILL).
 - Existing implementation still has platform-specific network and proxy edge cases; no blanket compatibility guarantee.
 - If the npm registry URL is protected, fallback uses npm itself instead of independently parsing secrets. This changes how failures surface.
 - Earlier intermediate CI failures were corrected; the **latest head** CI passes. Do not infer failures apply to the current commit.
 
 **Rollback:** Revert #30's merge commit or squash commit if connectivity regresses; run Bash `--test` and `dry-run` against private and public npm registry configurations first. Rollback reintroduces the original network/reachability and hardening defects; prefer a targeted fix when possible. No schema migration.
 
-**Owner question:** Accept the known self-test SIGTERM cleanup limitation for now, or require a fix and rerun CI before approval? **Recommended: fix this small issue first if operationally feasible**, then merge #30 on current approved head.
+**Owner decision required:** The known SIGTERM cleanup problem has been fixed and the full CI matrix passed. Wait for Codex on the exact latest SHA and any new findings, then request explicit approval to merge PR #30. No permission to merge #29 is implied.
 
 ## PR #29 — MCP stdio E2E and subprocess lifecycle
 
@@ -76,4 +78,4 @@
 
 **Evidence quality:** CI and CodeQL are not security proofs; latest Codex receipts report *no major new findings*, not closure of all review threads. Ratings such as "8.5/10" are engineering judgement, not machine-measured readiness.
 
-**Current recommendation:** **#30: conditional yes after risk disposition. #29: no, not yet.** In both cases an explicit owner approval for the exact current head is required under the sensitive-change policy.
+**Current recommendation:** **#30: conditional yes after fresh Codex review and explicit owner approval of SHA `8775191a`. #29: no, not yet.** Both are sensitive and need separate approvals under policy.
