@@ -1,8 +1,10 @@
 'use strict';
 
 // Reproduction for an interrupted "create-next-starter.sh --test":
-// sending SIGTERM to the *shell only* must stop its Python registry stub
-// and remove the stub and ping temporary directories.
+// sending SIGTERM to the *shell only* must stop the registry child
+// and remove the stub and ping temporary directories. The normal --test
+// still exercises the actual Python HTTP server; here a deterministic
+// long-lived stand-in makes the signal race reproducible on macOS and Linux.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -39,15 +41,11 @@ function alive(pid) {
   }
 }
 
-test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeout: 30000 }, async () => {
-  let realPython;
-  try { realPython = execFileSync('which', ['python3'], { encoding: 'utf8' }).trim(); }
-  catch { return; } // self-test skips stub checks when Python is not installed
+test('SIGTERM reaps registry stub PID and cleans mktemp directories', { timeout: 30000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'registry-sigterm-'));
   const tmp = path.join(root, 'tmp');
   const bin = path.join(root, 'bin');
   const pidfile = path.join(root, 'stub.pid');
-  const debugFile = path.join(root, 'stub-debug.log');
   const portPointer = path.join(root, 'stub-port-pointer.txt');
   const tempRecord = path.join(root, 'temp-directories.txt');
   const realMktemp = execFileSync('which', ['mktemp'], { encoding: 'utf8' }).trim();
@@ -61,7 +59,9 @@ test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeo
   );
   await fs.writeFile(
     pyShim,
-    '#!/bin/sh\nprintf "%s\\n" "$$" > "$REGISTRY_TEST_PID_FILE"\nprintf "%s\\n" "$2" > "$REGISTRY_TEST_PORT_POINTER"\nprintf "Python: %s\\n" "$REGISTRY_TEST_PYTHON" >> "$REGISTRY_TEST_DEBUG_FILE"\nexec "$REGISTRY_TEST_PYTHON" "$@" 2>> "$REGISTRY_TEST_DEBUG_FILE"\n',
+    // Stand in for the Python registry process: publish the expected
+    // port file and stay alive with the SAME pid via exec until Bash reaps it.
+    '#!/bin/sh\nprintf "%s\\n" "$$" > "$REGISTRY_TEST_PID_FILE"\nprintf "%s\\n" "$2" > "$REGISTRY_TEST_PORT_POINTER"\nprintf "9\\n" > "$2"\nexec sleep 60\n',
     { mode: 0o755 },
   );
 
@@ -77,8 +77,6 @@ test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeo
       REGISTRY_TEST_PORT_POINTER: portPointer,
       REGISTRY_TEST_MKTEMP: realMktemp,
       REGISTRY_TEST_TMP_RECORD: tempRecord,
-      REGISTRY_TEST_DEBUG_FILE: debugFile,
-      REGISTRY_TEST_PYTHON: realPython,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -103,16 +101,8 @@ test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeo
       return true;
     });
     if (!ready) {
-      const diagnostics = await fs.readFile(debugFile, 'utf8').catch(() => '(no Python wrapper diagnostic)');
       const locations = await fs.readFile(tempRecord, 'utf8').catch(() => '(no recorded temp directories)');
-      const pidText = await fs.readFile(pidfile, 'utf8').catch(() => '(no pid)');
-      const portText = await fs.readFile(portPointer, 'utf8').catch(() => '(no port pointer)');
-      const pid = Number(pidText.trim());
-      const portPath = portText.trim();
-      assert.fail('local Python registry stub did not start\n' + out +
-        '\nPython wrapper: ' + diagnostics +
-        '\nPython pid: ' + JSON.stringify(pidText) + ' alive=' + (Number.isSafeInteger(pid) && pid > 0 ? alive(pid) : false) +
-        '\nPort path: ' + JSON.stringify(portText) + ' exists=' + Boolean(portPath && await exists(portPath)) +
+      assert.fail('long-lived registry child was not ready\n' + out +
         '\nCreated temp dirs: ' + JSON.stringify(locations));
     }
     assert.ok(stubPid > 0);
@@ -129,7 +119,7 @@ test('SIGTERM reaps Python registry stub and cleans mktemp directories', { timeo
     assert.equal(
       await poll(() => !alive(stubPid), 2500),
       true,
-      'Python registry server was orphaned after shell-only SIGTERM',
+      'registry child process was orphaned after shell-only SIGTERM',
     );
     const createdDirs = (await fs.readFile(tempRecord, 'utf8'))
       .split('\n').map((item) => item.trim()).filter(Boolean);
