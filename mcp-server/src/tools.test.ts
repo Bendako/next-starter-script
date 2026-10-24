@@ -198,6 +198,30 @@ describe('hosted mode', () => {
       await fs.rm(outputRoot, { recursive: true, force: true });
     }
   });
+
+  test('failed hosted creation cleans up its isolated workspace', async () => {
+    const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-hosted-fail-'));
+    let attemptedCwd = '';
+    try {
+      const result = await dispatchTool({
+        name: 'create_nextjs_app',
+        args: { name: 'my-app', skipClerk: true, skipConvex: true },
+        config: hostedConfig(outputRoot),
+        run: async (call) => {
+          attemptedCwd = call.cwd;
+          await fs.writeFile(path.join(call.cwd, 'partial.txt'), 'partial build output');
+          throw new Error('simulated generator failure');
+        },
+      });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /simulated generator failure/);
+      assert.ok(attemptedCwd);
+      await assert.rejects(fs.access(attemptedCwd));
+      assert.deepEqual(await fs.readdir(outputRoot), []);
+    } finally {
+      await fs.rm(outputRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('local mode', () => {
