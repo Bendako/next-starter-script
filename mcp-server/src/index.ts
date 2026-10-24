@@ -34,10 +34,18 @@ class NextjsStarterServer {
   private scriptPath: string;
 
   constructor() {
-    this.server = new Server({
-      name: 'nextjs-starter-script',
-      version: '1.0.0',
-    });
+    this.server = new Server(
+      {
+        name: 'nextjs-starter-script',
+        version: '1.0.0',
+      },
+      {
+        // SDK 1.x refuses tools/list and tools/call handlers without this.
+        capabilities: {
+          tools: {},
+        },
+      },
+    );
     
     // Script is in the parent directory relative to this MCP server
     const __filename = fileURLToPath(import.meta.url);
@@ -63,7 +71,7 @@ class NextjsStarterServer {
                 },
                 directory: {
                   type: 'string',
-                  description: 'Directory to create the app in (default: ~/Desktop). Use absolute path like /Users/ben/Desktop/projects',
+                  description: 'Directory to create the app in (default: ~/Desktop). Use absolute path like /Users/username/Desktop/projects',
                 },
                 skipConvex: {
                   type: 'boolean',
