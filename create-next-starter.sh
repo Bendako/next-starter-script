@@ -828,12 +828,12 @@ validate_app_name() {
     exit 1
   fi
   
-  # Check app name format
-  if [[ ! "$app_name" =~ ^[a-zA-Z0-9-]+$ ]]; then
+  if [ ${#app_name} -gt 214 ] || [[ ! "$app_name" =~ ^[a-zA-Z0-9-]+$ ]]; then
     log_error "Invalid app name format: $app_name"
     print_status "$YELLOW" "💡 App name requirements:"
     print_status "$YELLOW" "  - Only letters, numbers, and hyphens allowed"
     print_status "$YELLOW" "  - No spaces or special characters"
+    print_status "$YELLOW" "  - 1 to 214 characters"
     print_status "$YELLOW" "  - Example: my-awesome-app"
     exit 1
   fi
