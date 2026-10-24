@@ -1987,9 +1987,30 @@ if (!generated) {
 
 const file = 'tsconfig.json'
 
+function isWhitespace(ch) {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r'
+}
+
+function skipComment(text, i) {
+  if (text[i] !== '/') return i
+  const n = text[i + 1]
+  if (n === '/') {
+    let j = i + 2
+    while (j < text.length && text[j] !== '\n') j += 1
+    return j
+  }
+  if (n === '*') {
+    let j = i + 2
+    while (j < text.length && !(text[j] === '*' && text[j + 1] === '/')) j += 1
+    return j + 2
+  }
+  return i
+}
+
 function parseJsonc(text) {
   let out = ''
   let i = 0
+  let hadComments = false
   while (i < text.length) {
     const c = text[i]
     const n = text[i + 1]
@@ -2009,30 +2030,46 @@ function parseJsonc(text) {
       }
       continue
     }
-    if (c === '/' && n === '/') {
-      while (i < text.length && text[i] !== '\n') i += 1
+    if (c === '/' && (n === '/' || n === '*')) {
+      hadComments = true
+      i = skipComment(text, i)
       continue
     }
-    if (c === '/' && n === '*') {
-      i += 2
-      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i += 1
-      i += 2
-      continue
+    if (c === ',') {
+      let j = i + 1
+      while (j < text.length) {
+        if (isWhitespace(text[j])) {
+          j += 1
+          continue
+        }
+        const afterComment = skipComment(text, j)
+        if (afterComment === j) break
+        hadComments = true
+        j = afterComment
+      }
+      if (text[j] === '}' || text[j] === ']') {
+        i += 1
+        continue
+      }
     }
     out += c
     i += 1
   }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'))
+  return { value: JSON.parse(out), hadComments }
 }
 
 try {
-  const ts = parseJsonc(readFileSync(file, 'utf8'))
+  const parsed = parseJsonc(readFileSync(file, 'utf8'))
+  const ts = parsed.value
   const exclude = Array.isArray(ts.exclude) ? ts.exclude : []
   const next = exclude.filter((item) => item !== 'convex')
   if (next.length !== exclude.length) {
     ts.exclude = next
     writeFileSync(file, JSON.stringify(ts, null, 2) + '\n')
     console.log('Removed convex from tsconfig exclude.')
+    if (parsed.hadComments) {
+      console.warn('comments in tsconfig.json were removed')
+    }
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)
@@ -2181,7 +2218,7 @@ EOF
 
 ## Convex typecheck
 
-next build excludes convex/ until Convex codegen exists. npm run setup:convex runs codegen and removes that exclude after convex/_generated exists. If you run npx convex dev yourself, run node scripts/remove-convex-tsconfig-exclude.mjs afterward.
+next build excludes convex/ until Convex codegen exists. npm run setup:convex runs codegen and removes that exclude after convex/_generated exists. If tsconfig.json has comments, that rewrite removes them and prints "comments in tsconfig.json were removed". If you run npx convex dev yourself, run node scripts/remove-convex-tsconfig-exclude.mjs afterward.
 EOF
   fi
 }
