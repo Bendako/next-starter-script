@@ -690,6 +690,14 @@ detect_environment() {
   fi
 }
 
+npm_registry_reachable() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS -m 5 https://registry.npmjs.org/-/ping >/dev/null 2>&1
+  else
+    npm ping >/dev/null 2>&1
+  fi
+}
+
 # STEP 9.2: Enhanced prerequisite checking with version detection
 check_prerequisites() {
   print_status "$BLUE" "🔍 Checking prerequisites..."
@@ -747,7 +755,7 @@ check_prerequisites() {
   fi
   
   # Check internet connectivity
-  if ! ping -c 1 -W 5 registry.npmjs.org &> /dev/null; then
+  if ! npm_registry_reachable; then
     missing+=("Internet connection to npm registry")
   else
     log_info "Internet connectivity: ✓"
@@ -876,20 +884,10 @@ validate_app_name() {
 # Function to check network connectivity with enhanced error handling
 check_network() {
   print_status "$BLUE" "🌐 Checking network connectivity..."
-  
-  # Test multiple endpoints for better reliability
-  local endpoints=("registry.npmjs.org" "github.com" "google.com")
-  local connected=false
-  
-  for endpoint in "${endpoints[@]}"; do
-    if ping -c 1 -W 5 "$endpoint" &> /dev/null; then
-      connected=true
-      log_info "Network connectivity verified via $endpoint"
-      break
-    fi
-  done
-  
-  if [ "$connected" = false ]; then
+
+  if npm_registry_reachable; then
+    log_info "Network connectivity verified via registry.npmjs.org"
+  else
     log_error "No network connectivity detected"
     print_status "$YELLOW" "💡 Troubleshooting network issues:"
     print_status "$YELLOW" "  1. Check your internet connection"
@@ -2956,7 +2954,6 @@ script_self_test() {
     ((test_failures++))
   fi
 
-  # Test 5: ICMP failure must not fail the registry check
   local ping_stub_dir
   local saved_path
   ping_stub_dir=$(mktemp -d)
