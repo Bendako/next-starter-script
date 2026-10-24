@@ -3153,6 +3153,28 @@ PY
       test_failures=$((test_failures + 1))
     else
       port=$(cat "$portfile")
+      # Let npm resolve project-root .npmrc, inline comments and userconfig.
+      mkdir -p "$stub_dir/project/src"
+      printf '{"private":true}\n' > "$stub_dir/project/package.json"
+      printf 'registry = http://127.0.0.1:%s/ ; comment\n' "$port" > "$stub_dir/project/.npmrc"
+      local project_registry
+      project_registry=$(cd "$stub_dir/project/src" && NPM_CONFIG_REGISTRY='' npm_config_registry='' configured_registry) || project_registry=""
+      if [ "$project_registry" != "http://127.0.0.1:$port/" ]; then
+        print_status "$RED" "  ❌ Project .npmrc resolution failed"
+        test_failures=$((test_failures + 1))
+      else
+        print_status "$GREEN" "  ✅ Project .npmrc and inline comments resolved by npm"
+      fi
+
+      printf 'registry=http://127.0.0.1:%s/private\n' "$port" > "$stub_dir/custom.npmrc"
+      local custom_registry
+      custom_registry=$(NPM_CONFIG_USERCONFIG="$stub_dir/custom.npmrc" NPM_CONFIG_REGISTRY='' npm_config_registry='' configured_registry) || custom_registry=""
+      if [ "$custom_registry" != "http://127.0.0.1:$port/private" ]; then
+        print_status "$RED" "  ❌ NPM_CONFIG_USERCONFIG registry not honored"
+        test_failures=$((test_failures + 1))
+      else
+        print_status "$GREEN" "  ✅ NPM_CONFIG_USERCONFIG honored"
+      fi
       PATH="$ping_stub_dir:$PATH"
       if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:${port}/" check_prerequisites >/dev/null ); then
         print_status "$GREEN" "  ✅ Registry check passes when ping fails"
