@@ -4,6 +4,7 @@ export type ToolAuthorization =
 
 export type AuthInfo = {
   sub?: string;
+  clientId?: string;
 };
 
 export type ToolAuthInput = {
@@ -14,42 +15,20 @@ export type ToolAuthInput = {
   authInfo?: AuthInfo;
 };
 
-export type DeploymentKind = 'local-dev' | 'localhost' | 'preview' | 'production' | 'self-hosted';
-
 export const MCP_CLOSED = 'MCP stays closed until authentication is enabled.';
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 export const RATE_LIMIT = 60;
 export const RATE_WINDOW_MS = 60_000;
+export const RATE_MAP_CAP = 1_000;
 
 export type RateBucket = { start: number; count: number };
 
 const rateStore = new Map<string, RateBucket>();
 
-function hostnameOf(request: Request): string {
-  try {
-    return new URL(request.url).hostname;
-  } catch {
-    return '';
-  }
-}
-
-function onVercel(env: NodeJS.ProcessEnv): boolean {
-  return env.VERCEL === '1';
-}
-
-export function deploymentKind(env: NodeJS.ProcessEnv, request: Request): DeploymentKind {
-  if (env.VERCEL_ENV === 'production') return 'production';
-  if (env.VERCEL_ENV === 'preview') return 'preview';
-  if (onVercel(env) && env.VERCEL_ENV !== 'development') return 'self-hosted';
-  if (env.NODE_ENV !== 'production') return 'local-dev';
-  if (!onVercel(env) && LOOPBACK.has(hostnameOf(request))) return 'localhost';
-  return 'self-hosted';
-}
-
-export function deploymentOpen(kind: DeploymentKind): boolean {
-  return kind === 'local-dev' || kind === 'localhost';
+export function localOpen(env: NodeJS.ProcessEnv): boolean {
+  return env.NEXT_STARTER_MCP_ALLOW_LOCAL === '1' && env.VERCEL !== '1';
 }
 
 export function originAllowed(request: Request, env: NodeJS.ProcessEnv): boolean {
@@ -68,21 +47,26 @@ export function originAllowed(request: Request, env: NodeJS.ProcessEnv): boolean
   return LOOPBACK.has(parsed.hostname);
 }
 
-export function callerKey(request: Request, authInfo?: AuthInfo): string {
-  const sub = authInfo?.sub?.trim();
-  if (sub) return `id:${sub}`;
-  const real = request.headers.get('x-real-ip')?.trim();
-  if (real) return `ip:${real}`;
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
-    const last = forwarded
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .at(-1);
-    if (last) return `ip:${last}`;
+export function callerKey(request: Request, authInfo: AuthInfo | undefined, env: NodeJS.ProcessEnv): string {
+  const identity = authInfo?.clientId?.trim() || authInfo?.sub?.trim();
+  if (identity) return `id:${identity}`;
+  if (env.VERCEL === '1') {
+    const real = request.headers.get('x-real-ip')?.trim();
+    if (real) return `ip:${real}`;
   }
-  return 'ip:unknown';
+  return 'local';
+}
+
+function evictBuckets(store: Map<string, RateBucket>, now: number, windowMs: number, maxKeys: number): void {
+  for (const [key, bucket] of store) {
+    if (now - bucket.start >= windowMs) store.delete(key);
+  }
+  if (store.size <= maxKeys) return;
+  const oldest = [...store.entries()].sort((left, right) => left[1].start - right[1].start);
+  for (const [key] of oldest) {
+    if (store.size <= maxKeys) return;
+    store.delete(key);
+  }
 }
 
 export function takeCallBudget(
@@ -91,9 +75,15 @@ export function takeCallBudget(
   now: number,
   limit = RATE_LIMIT,
   windowMs = RATE_WINDOW_MS,
+  maxKeys = RATE_MAP_CAP,
 ): boolean {
+  evictBuckets(store, now, windowMs, maxKeys);
   const current = store.get(key);
   if (!current || now - current.start >= windowMs) {
+    if (store.size >= maxKeys) {
+      const oldest = [...store.entries()].sort((left, right) => left[1].start - right[1].start)[0];
+      if (oldest) store.delete(oldest[0]);
+    }
     store.set(key, { start: now, count: 1 });
     return true;
   }
@@ -113,13 +103,13 @@ export function admitHttpRequest(input: {
   if (!originAllowed(input.request, input.env)) {
     return { allowed: false, status: 403, message: 'Origin is not allowed.' };
   }
-  if (!deploymentOpen(deploymentKind(input.env, input.request))) {
+  if (!localOpen(input.env)) {
     return { allowed: false, status: 403, message: MCP_CLOSED };
   }
   const store = input.store ?? rateStore;
   const allowed = takeCallBudget(
     store,
-    callerKey(input.request, input.authInfo),
+    callerKey(input.request, input.authInfo, input.env),
     input.now ?? Date.now(),
     input.limit,
   );
@@ -131,14 +121,11 @@ export function identityAllows(input: ToolAuthInput): boolean {
   void input.tool;
   void input.args;
   void input.authInfo;
-  return true;
+  return localOpen(input.env);
 }
 
 export function authorizeToolCall(input: ToolAuthInput): ToolAuthorization {
-  if (!deploymentOpen(deploymentKind(input.env, input.request))) {
-    return { allowed: false, status: 403, message: MCP_CLOSED };
-  }
-  if (!identityAllows(input)) {
+  if (!localOpen(input.env) || !identityAllows(input)) {
     return { allowed: false, status: 403, message: MCP_CLOSED };
   }
   return { allowed: true };

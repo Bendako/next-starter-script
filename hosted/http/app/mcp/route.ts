@@ -40,7 +40,7 @@ const mcp = createMcpHandler(
           description: tool.description,
           inputSchema,
         },
-        async (args) => {
+        async (args, ctx) => {
           return executeToolCall(tool.name, args, {
             config,
             run: (call) => runScript(scriptPath, call),
@@ -52,12 +52,13 @@ const mcp = createMcpHandler(
                   isError: true,
                 };
               }
+              const authInfo = ctx.http?.authInfo ?? current.request.auth ?? current.authInfo;
               const decision = authorizeToolCall({
                 request: current.request,
                 env: process.env,
                 tool: name,
                 args: toolArgs,
-                authInfo: current.authInfo,
+                authInfo,
               });
               if (!decision.allowed) {
                 return {
@@ -90,11 +91,12 @@ const mcp = createMcpHandler(
 );
 
 async function handler(request: Request): Promise<Response> {
-  const decision = admitHttpRequest({ request, env: process.env });
+  const authInfo = request.auth;
+  const decision = admitHttpRequest({ request, env: process.env, authInfo });
   if (!decision.allowed) {
     return new Response(decision.message, { status: decision.status });
   }
-  return callContext.run({ request }, () => mcp(request));
+  return callContext.run({ request, authInfo }, () => mcp(request));
 }
 
 export { handler as GET, handler as POST, handler as DELETE };

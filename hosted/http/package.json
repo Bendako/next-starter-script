@@ -10,8 +10,8 @@
     "prebuild": "npm run build --prefix ../../mcp-server && npm run copy-generator",
     "predev": "npm run build --prefix ../../mcp-server && npm run copy-generator",
     "build": "next build",
-    "dev": "next dev",
-    "start": "next start",
+    "dev": "next dev -H 127.0.0.1",
+    "start": "next start -H 127.0.0.1",
     "lint": "eslint .",
     "test": "vitest run",
     "vercel-build": "node scripts/vercel-build.mjs"

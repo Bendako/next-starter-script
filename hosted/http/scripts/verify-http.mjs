@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { spawn } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -68,9 +69,20 @@ async function waitForServer(child, base) {
   throw new Error(`timed out waiting for ${base}\n${output}`);
 }
 
-async function expectClosed(port, label) {
-  const base = `http://127.0.0.1:${port}`;
-  const response = await fetch(`${base}/mcp`, {
+function lanAddress() {
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.internal || entry.family !== 'IPv4') continue;
+      return entry.address;
+    }
+  }
+  throw new Error('no non-loopback IPv4 address');
+}
+
+async function expectClosed(url, label) {
+  let response;
+  try {
+    response = await fetch(url, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -83,12 +95,24 @@ async function expectClosed(port, label) {
       params: { name: 'script_help', arguments: {} },
     }),
   });
-  const body = await response.text();
-  console.log(`\n## ${label}`);
-  console.log(`status=${response.status}`);
-  console.log(body.slice(0, 200));
-  if (response.status !== 403) {
-    throw new Error(`${label} returned ${response.status}`);
+    const body = await response.text();
+    console.log(`\n## ${label}`);
+    console.log(`status=${response.status}`);
+    console.log(body.slice(0, 200));
+    if (response.status !== 403) {
+      throw new Error(`${label} returned ${response.status}`);
+    }
+  } catch (error) {
+    if (error instanceof Error && 'cause' in error) {
+      const code = error.cause && typeof error.cause === 'object' && 'code' in error.cause ? error.cause.code : '';
+      if (code === 'ECONNREFUSED' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH') {
+        console.log(`\n## ${label}`);
+        console.log(`closed ${code}`);
+        return;
+      }
+    }
+    if (error instanceof Error && error.message.startsWith(`${label} returned`)) throw error;
+    throw error;
   }
 }
 
@@ -106,21 +130,31 @@ async function callTool(client, name, args) {
 
 const port = 3457;
 const base = `http://127.0.0.1:${port}`;
-const server = startServer(port, {});
+const server = startServer(port, { NEXT_STARTER_MCP_ALLOW_LOCAL: '1' });
+const closed = startServer(3460, {});
 const production = startServer(3458, {
+  VERCEL: '1',
   VERCEL_ENV: 'production',
   NEXT_STARTER_MCP_ALLOW_PRODUCTION: '1',
+  NEXT_STARTER_MCP_ALLOW_LOCAL: '1',
 });
-const preview = startServer(3459, { VERCEL_ENV: 'preview' });
+const preview = startServer(3459, {
+  VERCEL: '1',
+  VERCEL_ENV: 'preview',
+  NEXT_STARTER_MCP_ALLOW_LOCAL: '1',
+});
 
 try {
   await Promise.all([
     waitForServer(server, base),
+    waitForServer(closed, 'http://127.0.0.1:3460'),
     waitForServer(production, 'http://127.0.0.1:3458'),
     waitForServer(preview, 'http://127.0.0.1:3459'),
   ]);
-  await expectClosed(3458, 'production closed');
-  await expectClosed(3459, 'preview closed');
+  await expectClosed('http://127.0.0.1:3460/mcp', 'no local allow');
+  await expectClosed(`http://${lanAddress()}:${port}/mcp`, 'non-loopback');
+  await expectClosed('http://127.0.0.1:3458/mcp', 'production closed');
+  await expectClosed('http://127.0.0.1:3459/mcp', 'preview closed');
 
   const evil = await fetch(`${base}/mcp`, { headers: { origin: 'https://evil.example' } });
   console.log('\n## bad origin');

@@ -4,9 +4,9 @@ Streamable HTTP entry for the Next.js starter tools. The route is `/mcp`. It use
 
 `dry_run`, `script_help`, and `test_script` run in the Function. `create_nextjs_app` starts one Vercel Sandbox, 1 vCPU and 2048 MB, not persistent, 270 second timeout, `registry.npmjs.org` only, and stops it when the call ends. The function limit is 300 seconds, so the sandbox ends first and the function can still stop it. The archive excludes `node_modules`, `.next`, `.git`, symlinks, and `.env` files other than `.env.example`. Download links are a later change. Until then, set `NEXT_STARTER_GENERATION_STUB` to `1` to return a stub result.
 
-The route is closed unless the process is local dev, or it is `next start` and the request host is loopback. Preview, production, and any other host stay closed. `NEXT_STARTER_MCP_ALLOW_PRODUCTION` does not open production. Also turn on Vercel Deployment Protection for the production deployment.
+The route stays closed unless `NEXT_STARTER_MCP_ALLOW_LOCAL` is `1` and `VERCEL` is not `1`. A localhost URL, `NODE_ENV=development`, and the old production flag do not open it. `npm run dev` and `npm start` bind to `127.0.0.1`. Also turn on Vercel Deployment Protection for the production deployment.
 
-One process allows 60 requests per minute per caller. A Vercel Firewall rule for the deployment is `_TBD_`.
+One process allows 60 requests per minute. Off Vercel every caller shares one key, because forwarded IP headers are not trusted. On Vercel the key is `x-real-ip` or the token client id. A Vercel Firewall rule for the deployment is `_TBD_`.
 
 ## Local
 
@@ -16,10 +16,10 @@ From `hosted/http`:
 npm ci
 npm test
 npm run build
-npm start
+NEXT_STARTER_MCP_ALLOW_LOCAL=1 npm start
 ```
 
-Connect a client to `http://127.0.0.1:3000/mcp`.
+`npm start` listens on `127.0.0.1` only. Connect a client to `http://127.0.0.1:3000/mcp`. Without `NEXT_STARTER_MCP_ALLOW_LOCAL=1` every request is refused.
 
 ## Vercel
 
@@ -40,6 +40,7 @@ Names only. Do not commit values.
 | `NEXT_PUBLIC_CONVEX_URL` | Convex deployment URL. Read by the server. Safe to expose. |
 | `CONVEX_DEPLOY_KEY` | Build-time deploy key. Server and build only. Never prefix it with `NEXT_PUBLIC_`. |
 | `NEXT_STARTER_CONVEX_DEPLOY` | `1` opts the Vercel build into `convex deploy`. Ignored off Vercel. |
+| `NEXT_STARTER_MCP_ALLOW_LOCAL` | `1` opens the route for a process that is not on Vercel. `npm start` still binds to `127.0.0.1`. |
 | `NEXT_STARTER_GENERATION_STUB` | `1` or `true` returns the stub create result and does not start a sandbox. |
 | `NEXT_STARTER_MCP_ORIGINS` | Comma-separated Origin allow-list. When unset, only localhost, `127.0.0.1`, and `::1` are allowed. A missing Origin is allowed. |
 
@@ -82,4 +83,4 @@ url = "https://YOUR_DEPLOYMENT_HOST/mcp"
 
 ## Auth and entitlements
 
-`authorizeToolCall` in `src/gate.ts` receives the request, auth info, the tool name, and the tool arguments. It runs before a tool executes. Identity checks and plan checks replace `identityAllows`. This app does not implement them.
+`authorizeToolCall` in `src/gate.ts` receives the request, the auth info from the MCP handler, the tool name, and the tool arguments. `identityAllows` returns false unless local use was opened explicitly. Identity checks and plan checks replace that function. This app does not implement them.
