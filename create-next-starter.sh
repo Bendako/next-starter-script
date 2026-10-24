@@ -3212,6 +3212,19 @@ PY
         print_status "$RED" "  ❌ Credentialed registry check failed"
         test_failures=$((test_failures + 1))
       fi
+
+      : > "$logfile"
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://user:p@ss@127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "p@ss" >/dev/null; then
+        print_status "$RED" "  ❌ Registry password with @ leaked to output"
+        test_failures=$((test_failures + 1))
+      elif printf '%s\n' "$check_out" | grep -F "***@127.0.0.1:${port}" >/dev/null \
+        && grep -F "Basic" "$logfile" >/dev/null; then
+        print_status "$GREEN" "  ✅ Password containing @ was safely masked and authenticated"
+      else
+        print_status "$RED" "  ❌ Password containing @ registry check failed"
+        test_failures=$((test_failures + 1))
+      fi
     fi
     if [ -n "$stub_pid" ]; then
       kill "$stub_pid" 2>/dev/null || true
