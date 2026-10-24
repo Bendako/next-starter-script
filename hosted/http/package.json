@@ -17,6 +17,8 @@
     "vercel-build": "node scripts/vercel-build.mjs"
   },
   "dependencies": {
+    "@clerk/mcp-tools": "^0.7.0",
+    "@clerk/nextjs": "^7.9.20",
     "@modelcontextprotocol/server": "^2.0.0",
     "@vercel/sandbox": "^3.9.0",
     "convex": "^1.31.0",
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "convex-test": "^0.0.65",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@types/node": "^22.20.5",
     "@types/react": "^19.0.0",

@@ -1,10 +1,17 @@
+import { isClerkAuthInfo } from '@clerk/mcp-tools/server';
+import type { AuthInfo as McpAuthInfo } from '@modelcontextprotocol/server';
+import { bindTrustedCaller, type TrustedConvexCaller } from './convex-credential';
+
 export type ToolAuthorization =
-  | { allowed: true }
+  | { allowed: true; clerkUserId?: string; caller?: TrustedConvexCaller }
   | { allowed: false; status: 403 | 429; message: string };
 
 export type AuthInfo = {
   sub?: string;
   clientId?: string;
+  token?: string;
+  scopes?: string[];
+  extra?: Record<string, unknown>;
 };
 
 export type ToolAuthInput = {
@@ -117,16 +124,40 @@ export function admitHttpRequest(input: {
   return { allowed: true };
 }
 
+const AUTHENTICATION_REQUIRED = 'Authentication required';
+
+export function clerkUserIdFrom(authInfo: AuthInfo | McpAuthInfo | undefined): string | undefined {
+  const candidate = authInfo as McpAuthInfo | undefined;
+  if (!candidate || !isClerkAuthInfo(candidate)) return undefined;
+  const userId = candidate.extra?.userId;
+  if (typeof userId !== 'string' || userId.length === 0) return undefined;
+  return userId;
+}
+
+// Denies unless the deployment is open and Clerk verified this auth info.
+// #15 reads the tool name and arguments for the plan limit.
 export function identityAllows(input: ToolAuthInput): boolean {
   void input.tool;
   void input.args;
-  void input.authInfo;
-  return localOpen(input.env);
+  void input.request;
+  if (!localOpen(input.env)) return false;
+  return clerkUserIdFrom(input.authInfo) !== undefined;
 }
 
 export function authorizeToolCall(input: ToolAuthInput): ToolAuthorization {
-  if (!localOpen(input.env) || !identityAllows(input)) {
+  if (!localOpen(input.env)) {
     return { allowed: false, status: 403, message: MCP_CLOSED };
   }
-  return { allowed: true };
+  if (!identityAllows(input)) {
+    return { allowed: false, status: 403, message: AUTHENTICATION_REQUIRED };
+  }
+  const clerkUserId = clerkUserIdFrom(input.authInfo);
+  if (!clerkUserId) {
+    return { allowed: false, status: 403, message: AUTHENTICATION_REQUIRED };
+  }
+  return {
+    allowed: true,
+    clerkUserId,
+    caller: bindTrustedCaller(clerkUserId),
+  };
 }
