@@ -691,11 +691,35 @@ detect_environment() {
 }
 
 npm_registry_reachable() {
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsS -m 5 https://registry.npmjs.org/-/ping >/dev/null 2>&1
-  else
-    npm ping >/dev/null 2>&1
+  local registry=""
+  if command -v npm >/dev/null 2>&1; then
+    registry=$(npm config get registry 2>/dev/null) || registry=""
   fi
+  if [ -z "$registry" ]; then
+    registry="https://registry.npmjs.org/"
+  fi
+  registry="${registry%/}"
+  NPM_REGISTRY="$registry"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS -m 5 "${registry}/-/ping" >/dev/null 2>&1 || return 1
+    return 0
+  fi
+  # fetch-timeout does not abort a hung TCP connect.
+  npm ping --fetch-timeout=5000 --fetch-retries=0 >/dev/null 2>&1 &
+  local ping_pid
+  local waited
+  ping_pid=$!
+  waited=0
+  while kill -0 "$ping_pid" 2>/dev/null; do
+    if [ "$waited" -ge 5 ]; then
+      kill "$ping_pid" 2>/dev/null || true
+      wait "$ping_pid" 2>/dev/null || true
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$ping_pid" || return 1
 }
 
 # STEP 9.2: Enhanced prerequisite checking with version detection
@@ -886,7 +910,7 @@ check_network() {
   print_status "$BLUE" "🌐 Checking network connectivity..."
 
   if npm_registry_reachable; then
-    log_info "Network connectivity verified via registry.npmjs.org"
+    log_info "Network connectivity verified via $NPM_REGISTRY"
   else
     log_error "No network connectivity detected"
     print_status "$YELLOW" "💡 Troubleshooting network issues:"
@@ -897,7 +921,7 @@ check_network() {
     exit 1
   fi
   
-  print_status "$GREEN" "✅ Network connection verified"
+  print_status "$GREEN" "✅ Network connection verified via $NPM_REGISTRY"
 }
 
 # Function to create Next.js app with enhanced error handling
