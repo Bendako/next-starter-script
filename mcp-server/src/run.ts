@@ -35,6 +35,48 @@ function killProcessTree(child: ChildProcess): void {
   }
 }
 
+const activeChildren = new Set<ChildProcess>();
+
+function trackChild(child: ChildProcess): void {
+  activeChildren.add(child);
+  child.on('close', () => {
+    activeChildren.delete(child);
+  });
+}
+
+function killTrackedProcessGroups(): void {
+  for (const child of activeChildren) {
+    try {
+      killProcessTree(child);
+    } catch (error) {
+      if (!isErrno(error, 'ESRCH') && !isErrno(error, 'EPERM')) {
+        console.error('Failed to stop a script process group', error);
+      }
+    }
+  }
+}
+
+let guardsInstalled = false;
+
+export function installProcessGuards(): void {
+  if (guardsInstalled) return;
+  guardsInstalled = true;
+  const stop = () => {
+    killTrackedProcessGroups();
+  };
+  process.on('exit', stop);
+  process.on('SIGINT', () => {
+    stop();
+    process.exit(130);
+  });
+  process.on('SIGTERM', () => {
+    stop();
+    process.exit(143);
+  });
+  process.stdin.on('end', stop);
+  process.stdin.on('close', stop);
+}
+
 export type ScriptOutput = {
   stdout: string;
   stderr: string;
@@ -78,6 +120,7 @@ export function runScript(
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
     });
+    trackChild(child);
 
     const timer = setTimeout(() => {
       timedOut = true;

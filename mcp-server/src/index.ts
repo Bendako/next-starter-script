@@ -8,7 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runScript } from './run.js';
+import { installProcessGuards, runScript } from './run.js';
 import { dispatchTool, listTools, readServerConfig } from './tools.js';
 
 const config = readServerConfig(process.env);
@@ -46,6 +46,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   });
 });
 
+installProcessGuards();
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error('Next.js Starter MCP Server running on stdio');

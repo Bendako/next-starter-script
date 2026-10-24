@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ci-mcp:
     name: ci/mcp
@@ -32,7 +36,7 @@ jobs:
   qa-mcp:
     name: qa/mcp
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -48,3 +52,11 @@ jobs:
       - name: End-to-end tool calls
         working-directory: mcp-server
         run: npm run test:protocol:qa
+
+      - name: Upload QA logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-mcp-logs
+          path: mcp-server/qa-artifacts
+          if-no-files-found: ignore

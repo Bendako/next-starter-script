@@ -201,7 +201,11 @@ npm run test:protocol:ci
 npm run test:protocol:qa
 ```
 
-`test:protocol:ci` is the fast protocol and security set. `test:protocol:qa` runs `create_nextjs_app` and needs network.
+`test:protocol:ci` is the fast protocol and security set. GitHub Actions runs it on Ubuntu. macOS is not covered there.
+
+`test:protocol:qa` creates the minimal, default, and full templates, then runs `npm run lint`, `npx tsc --noEmit`, and `npm run build`. Convex and Clerk need credentials, so every template passes `skipConvex` and `skipClerk`. The check requires the script's Convex skip lines. It also requires `setup.log` to contain `Option: Skip Convex setup enabled`, `Option: Skip Clerk setup enabled`, `SKIP_CONVEX=true`, and `SKIP_CLERK=true`. The generated app must not depend on `convex` or `@clerk/nextjs`. The script prints no Clerk skip line. The log line is the explicit record. A failed run writes `mcp-server/qa-artifacts/` for upload.
+
+Child scripts are process-group leaders on Linux and macOS. The server kills that group on exit, on SIGINT, on SIGTERM, and when stdin closes. Windows is unsupported. It only signals the direct child. `taskkill /T` would be required there.
 
 ## File Structure 📁
 
