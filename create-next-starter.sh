@@ -2955,6 +2955,29 @@ script_self_test() {
     print_status "$RED" "  ❌ SCRIPT_VERSION not set"
     ((test_failures++))
   fi
+
+  # Test 5: ICMP failure must not fail the registry check
+  local ping_stub_dir
+  local saved_path
+  ping_stub_dir=$(mktemp -d)
+  printf '%s\n' '#!/bin/sh' 'exit 1' > "$ping_stub_dir/ping"
+  chmod +x "$ping_stub_dir/ping"
+  saved_path="$PATH"
+  PATH="$ping_stub_dir:$PATH"
+  if ( check_prerequisites >/dev/null ); then
+    print_status "$GREEN" "  ✅ Registry check passes when ping fails"
+  else
+    print_status "$RED" "  ❌ Registry check failed when ping fails"
+    test_failures=$((test_failures + 1))
+  fi
+  if ( check_network >/dev/null ); then
+    print_status "$GREEN" "  ✅ Network check passes when ping fails"
+  else
+    print_status "$RED" "  ❌ Network check failed when ping fails"
+    test_failures=$((test_failures + 1))
+  fi
+  PATH="$saved_path"
+  rm -rf "$ping_stub_dir"
   
   # Report results
   if [ $test_failures -eq 0 ]; then
