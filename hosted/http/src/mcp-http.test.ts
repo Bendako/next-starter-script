@@ -199,6 +199,20 @@ describe('hosted MCP handler', () => {
           arguments: { name: 'MyApp' },
         });
         assert.equal(rejected.isError, true);
+
+        // A valid app name is not sufficient to start a billable sandbox job
+        // before the trusted Convex server credential has been configured.
+        const noBackendCredential = await client.callTool({
+          name: 'create_nextjs_app',
+          arguments: { name: 'safe-app', skipConvex: true, skipClerk: true },
+        });
+        assert.equal(noBackendCredential.isError, true);
+        const backendMessage = noBackendCredential.content?.find((block) => block.type === 'text');
+        assert.equal(
+          backendMessage && 'text' in backendMessage &&
+            backendMessage.text.includes('Convex server credential is not selected'),
+          true,
+        );
       } finally {
         await client.close();
       }
