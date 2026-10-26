@@ -222,6 +222,57 @@ describe('hosted mode', () => {
       await fs.rm(outputRoot, { recursive: true, force: true });
     }
   });
+
+  test('concurrent same-name hosted calls keep separate workspaces and results', { timeout: 5_000 }, async () => {
+    const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-hosted-parallel-'));
+    const seen = new Set<string>();
+    let release!: () => void;
+    const bothStarted = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      const results = await Promise.all(['caller-a', 'caller-b'].map((marker) => dispatchTool({
+        name: 'create_nextjs_app',
+        args: { name: 'same-app', skipClerk: true, skipConvex: true },
+        config: hostedConfig(outputRoot),
+        run: async (call) => {
+          assert.equal(seen.has(call.cwd), false, 'requests share their workspace');
+          seen.add(call.cwd);
+          await fs.writeFile(path.join(call.cwd, 'owner'), marker);
+          if (seen.size === 2) release();
+          await bothStarted;
+          assert.equal(await fs.readFile(path.join(call.cwd, 'owner'), 'utf8'), marker);
+          return { stdout: marker, stderr: '' };
+        },
+      }).finally(() => release())));
+      assert.equal(seen.size, 2);
+      results.forEach((result) => assert.notEqual(result.isError, true));
+    } finally {
+      await fs.rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('timed-out hosted generation kills descendants before workspace cleanup', { timeout: 10_000 }, async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-hosted-timeout-'));
+    const outputRoot = path.join(root, 'workspaces');
+    const script = path.join(root, 'linger.sh');
+    try {
+      const sentinel = path.join(root, 'escaped-descendant');
+      await fs.writeFile(script, '#!/bin/bash\n(sleep 2 && touch "$1") &\nwait\n');
+      const result = await dispatchTool({
+        name: 'create_nextjs_app',
+        args: { name: 'timeout-app', skipClerk: true, skipConvex: true },
+        config: hostedConfig(outputRoot),
+        run: (call) => runScript(script, { ...call, args: [sentinel] }, { ...process.env, NEXT_STARTER_MCP_SCRIPT_TIMEOUT_MS: '300' }),
+      });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /Script timed out/);
+      assert.deepEqual(await fs.readdir(outputRoot), []);
+      await new Promise((resolve) => setTimeout(resolve, 2_300));
+      assert.deepEqual(await fs.readdir(outputRoot), []);
+      await assert.rejects(fs.access(sentinel));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('local mode', () => {
