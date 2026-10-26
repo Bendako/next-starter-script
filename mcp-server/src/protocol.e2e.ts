@@ -719,29 +719,38 @@ async function assertStdinCloseKillsGroup(): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-protocol-'));
   const scriptPath = path.join(root, 'linger.sh');
   await fs.writeFile(scriptPath, LINGER_SCRIPT, { mode: 0o755 });
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [serverJs()],
+  const childProcess = spawn(process.execPath, [serverJs()], {
     cwd: root,
     env: { TMPDIR: root, TMP: root, NEXT_STARTER_MCP_SCRIPT_PATH: scriptPath },
-    stderr: 'pipe',
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const client = new Client({ name: 'mcp-protocol-test', version: '0.0.0' }, { capabilities: {} });
-  const pending = client
-    .connect(transport)
-    .then(() => client.callTool({ name: 'test_script', arguments: {} }, undefined, { timeout: 60_000 }))
-    .catch((error: unknown) => error);
+  const closed = new Promise<void>((resolve, reject) => {
+    childProcess.once('close', () => resolve());
+    childProcess.once('error', reject);
+  });
+  childProcess.stdout.resume();
+  childProcess.stderr.resume();
+  for (const message of [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2024-11-05', capabilities: {},
+      clientInfo: { name: 'raw-eof-test', version: '0.0.0' },
+    } },
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'test_script', arguments: {} } },
+  ]) childProcess.stdin.write(JSON.stringify(message) + '\n');
   try {
     const leader = await readPid(path.join(root, 'leader.pid'));
     const child = await readPid(path.join(root, 'child.pid'));
     assert.equal(groupAlive(leader), true);
-    await client.close();
-    const gone = await waitUntil(() => !groupAlive(leader) && !pidAlive(child), 2_000);
+    // End raw stdin only. SDK transport.close() waits and sends SIGTERM,
+    // which could hide a missing EOF handler.
+    childProcess.stdin.end();
+    const gone = await waitUntil(() => !groupAlive(leader) && !pidAlive(child), 1_500);
     assert.equal(gone, true, `process group ${leader} still exists`);
     await assertAbsent(path.join(root, 'finished'));
   } finally {
-    await client.close().catch(() => undefined);
-    await pending;
+    if (childProcess.exitCode === null && childProcess.signalCode === null) childProcess.kill('SIGTERM');
+    await closed;
     await fs.rm(root, { recursive: true, force: true });
   }
 }
