@@ -523,11 +523,7 @@ async function runCase(spec: ProtocolCase): Promise<void> {
       await assertAbsent(path.join(root, relative));
     }
     if (spec.project) {
-      const hostedRoot = path.join(root, 'nextjs-starter-mcp');
-      const project = path.join(hostedRoot, spec.project);
-      const relative = path.relative(hostedRoot, project);
-      assert.equal(relative.startsWith('..'), false, project);
-      assert.equal(path.isAbsolute(relative), false, project);
+      const { project } = generatedPaths(root, spec.project, lastText);
       await fs.access(path.join(project, 'package.json'));
     }
     if (spec.qa) {
@@ -558,9 +554,8 @@ function isErrno(error: unknown, code: string): boolean {
 }
 
 async function verifyGeneratedApp(template: QaTemplate, root: string, text: string): Promise<void> {
-  const hostedRoot = path.join(root, 'nextjs-starter-mcp');
-  const project = path.join(hostedRoot, template.name);
-  const setupLog = await fs.readFile(path.join(hostedRoot, 'setup.log'), 'utf8');
+  const { workspace, project } = generatedPaths(root, template.name, text);
+  const setupLog = await fs.readFile(path.join(workspace, 'setup.log'), 'utf8');
   const pkg = JSON.parse(await fs.readFile(path.join(project, 'package.json'), 'utf8')) as {
     scripts?: Record<string, string>;
     dependencies?: Record<string, string>;
@@ -580,6 +575,18 @@ async function verifyGeneratedApp(template: QaTemplate, root: string, text: stri
   for (const command of APP_COMMANDS) {
     await runAppCommand(project, command.command, [...command.args]);
   }
+}
+
+function generatedPaths(root: string, name: string, text: string): { workspace: string; project: string } {
+  const location = /^Location: (.+)$/m.exec(text)?.[1];
+  assert.ok(location, 'successful generation must report its project location');
+  const project = path.resolve(location);
+  const workspace = path.dirname(project);
+  const hostedRoot = path.resolve(root, 'nextjs-starter-mcp');
+  // A hosted result must be inside one request-owned child of the output root.
+  assert.equal(path.dirname(workspace), hostedRoot, project);
+  assert.equal(path.basename(project), name, project);
+  return { workspace, project };
 }
 
 // Keep credentials from a developer's shell or CI job out of generated
@@ -686,17 +693,24 @@ async function publishFailure(
   await fs.writeFile(path.join(dir, 'failure.txt'), `${note}\n\n${serverStderr}`);
   await fs.writeFile(path.join(dir, 'server-stderr.txt'), serverStderr);
   const hostedRoot = path.join(root, 'nextjs-starter-mcp');
-  const copies: Array<[string, string]> = [
-    [path.join(hostedRoot, 'setup.log'), 'setup.log'],
-    [path.join(hostedRoot, 'setup-error.log'), 'setup-error.log'],
-  ];
-  if (spec.project) {
-    const project = path.join(hostedRoot, spec.project);
-    copies.push(
-      [path.join(project, 'package.json'), 'package.json'],
-      [path.join(project, 'setup.log'), 'project-setup.log'],
-      [path.join(project, 'setup-error.log'), 'project-setup-error.log'],
-    );
+  const copies: Array<[string, string]> = [];
+  const entries = await fs.readdir(hostedRoot, { withFileTypes: true }).catch((error: unknown) => {
+    if (isErrno(error, 'ENOENT')) return [];
+    throw error;
+  });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const workspace = path.join(hostedRoot, entry.name);
+    await fs.mkdir(path.join(dir, entry.name), { recursive: true });
+    for (const file of ['setup.log', 'setup-error.log']) {
+      copies.push([path.join(workspace, file), path.join(entry.name, file)]);
+    }
+    if (spec.project) {
+      const project = path.join(workspace, spec.project);
+      for (const file of ['package.json', 'setup.log', 'setup-error.log']) {
+        copies.push([path.join(project, file), path.join(entry.name, `project-${file}`)]);
+      }
+    }
   }
   for (const [source, name] of copies) {
     await copyIfExists(source, path.join(dir, name));
