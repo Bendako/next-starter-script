@@ -160,7 +160,7 @@ function pastDueSubscription(
   occurredAt: string,
   graceSeconds: number,
 ): Subscription {
-  const pastDueAt = instant(subscription.pastDueAt ?? occurredAt);
+  const pastDueAt = instant(subscription.pastDueAt ?? subscription.currentPeriodStart);
   const periodStart = instant(subscription.currentPeriodStart);
   const periodEnd = instant(subscription.currentPeriodEnd);
   const pastDueMs = Date.parse(pastDueAt);
