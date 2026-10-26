@@ -90,6 +90,12 @@ CREATED_DIRS=()
 PARTIAL_INSTALL=false
 APP_NAME=""
 
+# Self-test owns a temporary Python registry and two mktemp directories.
+# Keep these values global so EXIT/SIGTERM cleanup can reach them.
+SELF_TEST_STUB_PID=""
+SELF_TEST_STUB_DIR=""
+SELF_TEST_PING_DIR=""
+
 # Configuration
 MAX_RETRIES=3
 RETRY_DELAY=5
@@ -120,9 +126,29 @@ log_info() {
   echo "[$timestamp] INFO: $message" >> "setup.log" 2>/dev/null || true
 }
 
+# Reap self-test's local registry on normal completion and interrupted exit.
+# Only remove paths returned by mktemp; never use the app's working directory.
+cleanup_self_test_resources() {
+  if [ -n "${SELF_TEST_STUB_PID:-}" ]; then
+    kill "$SELF_TEST_STUB_PID" 2>/dev/null || true
+    wait "$SELF_TEST_STUB_PID" 2>/dev/null || true
+    SELF_TEST_STUB_PID=""
+  fi
+  if [ -n "${SELF_TEST_STUB_DIR:-}" ]; then
+    rm -rf -- "$SELF_TEST_STUB_DIR" || true
+    SELF_TEST_STUB_DIR=""
+  fi
+  if [ -n "${SELF_TEST_PING_DIR:-}" ]; then
+    rm -rf -- "$SELF_TEST_PING_DIR" || true
+    SELF_TEST_PING_DIR=""
+  fi
+}
+
 # Comprehensive cleanup function
 cleanup() {
+  # Preserve the original exit status before cleanup commands overwrite $?.
   local exit_code=$?
+  cleanup_self_test_resources
   
   if [ $exit_code -ne 0 ] && [ "$CLEANUP_NEEDED" = true ]; then
     print_status "$YELLOW" ""
@@ -690,49 +716,60 @@ detect_environment() {
   fi
 }
 
-# npm config get refuses to print a registry URL that contains credentials.
+# Ask npm to resolve the effective registry (including npmrc location, comments,
+# userconfig/globalconfig and env precedence). Do not parse arbitrary .npmrc here.
+# npm deliberately refuses to reveal URLs containing passwords. In that case
+# a bounded "npm ping" is the safer fallback, unless the URL is from an
+# explicit environment setting (which can be validated without reading files).
 configured_registry() {
   local registry=""
-  local file=""
-  local line=""
-  if [ -n "${npm_config_registry:-}" ]; then
-    printf '%s\n' "$npm_config_registry"
-    return 0
-  fi
-  if [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then
-    printf '%s\n' "$NPM_CONFIG_REGISTRY"
-    return 0
-  fi
   if command -v npm >/dev/null 2>&1; then
     registry=$(npm config get registry 2>/dev/null) || registry=""
   fi
-  if [ -n "$registry" ]; then
-    printf '%s\n' "$registry"
-    return 0
-  fi
-  for file in "./.npmrc" "${HOME:-}/.npmrc"; do
-    [ -f "$file" ] || continue
-    line=$(grep -E '^[[:space:]]*registry[[:space:]]*=' "$file" 2>/dev/null | tail -n 1 || true)
-    [ -n "$line" ] || continue
-    line="${line#*=}"
-    line="${line#"${line%%[![:space:]]*}"}"
-    line="${line%"${line##*[![:space:]]}"}"
-    case "$line" in
-      \"*\") line="${line#\"}"; line="${line%\"}" ;;
-      \'*\') line="${line#\'}"; line="${line%\'}" ;;
-    esac
-    [ -n "$line" ] || continue
-    printf '%s\n' "$line"
-    return 0
-  done
-  return 1
+  case "$registry" in
+    ""|undefined|null)
+      if [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then
+        registry="$NPM_CONFIG_REGISTRY"
+      elif [ -n "${npm_config_registry:-}" ]; then
+        registry="$npm_config_registry"
+      else
+        return 1
+      fi
+      ;;
+  esac
+  printf '%s\n' "$registry"
 }
 
-mask_registry() {
+# A registry is an HTTP(S) endpoint, not curl flags or a curl config file.
+# Disallow characters which would inject new directives into curl -K stdin.
+valid_registry_url() {
   local url="$1"
   case "$url" in
-    *://*@*)
-      printf '%s://***@%s\n' "${url%%://*}" "${url#*@}"
+    http://*|https://*) ;;
+    *) return 1 ;;
+  esac
+  case "$url" in
+    *'"'*|*'\'*|*'?'*|*'#'*) return 1 ;;
+  esac
+  if [[ "$url" =~ [[:space:][:cntrl:]] ]]; then
+    return 1
+  fi
+  local authority="${url#*://}"
+  authority="${authority%%/*}"
+  [ -n "$authority" ]
+}
+
+# Mask only the authority's userinfo, using its *last* @. An @ in a
+# password or in a path segment must not expose credentials or be mangled.
+mask_registry() {
+  local url="$1"
+  local scheme="${url%%://*}"
+  local remainder="${url#*://}"
+  local authority="${remainder%%/*}"
+  local suffix="${remainder#"$authority"}"
+  case "$authority" in
+    *@*)
+      printf '%s://***@%s%s\n' "$scheme" "${authority##*@}" "$suffix"
       ;;
     *)
       printf '%s\n' "$url"
@@ -740,28 +777,12 @@ mask_registry() {
   esac
 }
 
-npm_registry_reachable() {
-  local registry=""
-  local code=""
-  registry=$(configured_registry) || registry=""
-  if [ -z "$registry" ]; then
-    registry="https://registry.npmjs.org/"
-  fi
-  registry="${registry%/}"
-  NPM_REGISTRY=$(mask_registry "$registry")
-  if command -v curl >/dev/null 2>&1; then
-    code=$(curl -sS -o /dev/null -m 5 -w '%{http_code}' "${registry}/-/ping" 2>/dev/null) || true
-    case "$code" in
-      ""|000) return 1 ;;
-    esac
-    return 0
-  fi
-  # fetch-timeout does not abort a hung TCP connect.
+bounded_npm_ping() {
+  # npm resolves its own registry and auth. Kill a hung npm connection even
+  # when --fetch-timeout does not abort TCP connect.
   npm ping --fetch-timeout=5000 --fetch-retries=0 >/dev/null 2>&1 &
-  local ping_pid
-  local waited
-  ping_pid=$!
-  waited=0
+  local ping_pid=$!
+  local waited=0
   while kill -0 "$ping_pid" 2>/dev/null; do
     if [ "$waited" -ge 5 ]; then
       kill "$ping_pid" 2>/dev/null || true
@@ -771,7 +792,44 @@ npm_registry_reachable() {
     sleep 1
     waited=$((waited + 1))
   done
-  wait "$ping_pid" || return 1
+  wait "$ping_pid"
+}
+
+npm_registry_reachable() {
+  local registry=""
+  local code=""
+  if ! registry=$(configured_registry); then
+    # Protected npmrc settings remain private. Do not attempt to parse them.
+    NPM_REGISTRY="configured npm registry (redacted)"
+    bounded_npm_ping
+    return $?
+  fi
+  registry="${registry%/}"
+  if ! valid_registry_url "$registry"; then
+    NPM_REGISTRY="invalid npm registry (redacted)"
+    return 1
+  fi
+  NPM_REGISTRY=$(mask_registry "$registry")
+  # curl cannot parse a password with a raw @ in the URL, while npm can.
+  # For multiple @ characters in the URL authority, let npm handle its
+  # own configuration/credential parsing rather than breaking reachability.
+  local registry_authority="${registry#*://}"
+  registry_authority="${registry_authority%%/*}"
+  case "$registry_authority" in
+    *@*@*) bounded_npm_ping; return $? ;;
+  esac
+  if command -v curl >/dev/null 2>&1; then
+    # -K - puts the URL on stdin instead of the process command line.
+    # Only a validated URL can enter this quoted curl config directive.
+    # -q disables a user's ~/.curlrc so this check is deterministic.
+    code=$(printf 'url = "%s/-/ping"\n' "$registry" |
+      curl -q -sS -o /dev/null -m 5 -w '%{http_code}' -K - 2>/dev/null) || true
+    case "$code" in
+      ""|000) return 1 ;;
+    esac
+    return 0
+  fi
+  bounded_npm_ping
 }
 
 # STEP 9.2: Enhanced prerequisite checking with version detection
@@ -3033,7 +3091,6 @@ script_self_test() {
   local ping_stub_dir
   local saved_path
   local stub_dir
-  local stub_pid
   local portfile
   local logfile
   local port
@@ -3041,9 +3098,36 @@ script_self_test() {
   local i
   local check_out
   ping_stub_dir=$(mktemp -d)
+  SELF_TEST_PING_DIR="$ping_stub_dir"
   printf '%s\n' '#!/bin/sh' 'exit 1' > "$ping_stub_dir/ping"
   chmod +x "$ping_stub_dir/ping"
   saved_path="$PATH"
+
+  # Security regression: a registry value must never become a curl option or
+  # inject another directive into the curl config provided over stdin.
+  if ( npm_config_registry='-K./payload' npm_registry_reachable ) >/dev/null 2>&1 ||
+     ( npm_config_registry='http://safe.example/"' npm_registry_reachable ) >/dev/null 2>&1 ||
+     ( npm_config_registry=$'http://safe.example/\nurl = "https://attacker.example"' npm_registry_reachable ) >/dev/null 2>&1; then
+    print_status "$RED" "  ❌ Unsafe registry accepted"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ Unsafe registry values rejected"
+  fi
+
+  if [ "$(mask_registry 'https://u:FAKE@PW@host.example/npm/@scope/')" != 'https://***@host.example/npm/@scope/' ] ||
+     [ "$(mask_registry 'https://host.example/npm/@scope/')" != 'https://host.example/npm/@scope/' ]; then
+    print_status "$RED" "  ❌ Registry masking failed"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ Registry passwords and scoped paths masked safely"
+  fi
+
+  if [ "$(NPM_CONFIG_REGISTRY='http://upper.example/' npm_config_registry='http://lower.example/' configured_registry)" != 'http://upper.example/' ]; then
+    print_status "$RED" "  ❌ npm registry environment precedence mismatch"
+    test_failures=$((test_failures + 1))
+  else
+    print_status "$GREEN" "  ✅ npm registry environment precedence respected"
+  fi
 
   if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:9" check_prerequisites >/dev/null ); then
     print_status "$RED" "  ❌ Unreachable registry was reported reachable"
@@ -3052,11 +3136,11 @@ script_self_test() {
     print_status "$GREEN" "  ✅ Unreachable registry check fails"
   fi
 
-  stub_pid=""
   if ! command -v python3 >/dev/null 2>&1; then
     print_status "$YELLOW" "  ⚠️  Local registry checks skipped: python3 is not installed"
   else
     stub_dir=$(mktemp -d)
+    SELF_TEST_STUB_DIR="$stub_dir"
     portfile="$stub_dir/port"
     logfile="$stub_dir/requests"
     cat > "$stub_dir/server.py" <<'PY'
@@ -3087,7 +3171,7 @@ with open(portfile, "w") as handle:
 server.serve_forever()
 PY
     python3 "$stub_dir/server.py" "$portfile" "$logfile" >"$stub_dir/server.out" 2>&1 &
-    stub_pid=$!
+    SELF_TEST_STUB_PID=$!
     ready=0
     i=0
     while [ "$i" -lt 5 ]; do
@@ -3103,6 +3187,28 @@ PY
       test_failures=$((test_failures + 1))
     else
       port=$(cat "$portfile")
+      # Let npm resolve project-root .npmrc, inline comments and userconfig.
+      mkdir -p "$stub_dir/project/src"
+      printf '{"private":true}\n' > "$stub_dir/project/package.json"
+      printf 'registry = http://127.0.0.1:%s/ ; comment\n' "$port" > "$stub_dir/project/.npmrc"
+      local project_registry
+      project_registry=$(cd "$stub_dir/project/src" && unset NPM_CONFIG_REGISTRY npm_config_registry && configured_registry) || project_registry=""
+      if [ "$project_registry" != "http://127.0.0.1:$port/" ]; then
+        print_status "$RED" "  ❌ Project .npmrc resolution failed"
+        test_failures=$((test_failures + 1))
+      else
+        print_status "$GREEN" "  ✅ Project .npmrc and inline comments resolved by npm"
+      fi
+
+      printf 'registry=http://127.0.0.1:%s/private\n' "$port" > "$stub_dir/custom.npmrc"
+      local custom_registry
+      custom_registry=$(cd "$stub_dir" && unset NPM_CONFIG_REGISTRY npm_config_registry && NPM_CONFIG_USERCONFIG="$stub_dir/custom.npmrc" npm_config_userconfig="$stub_dir/custom.npmrc" configured_registry) || custom_registry=""
+      if [ "$custom_registry" != "http://127.0.0.1:$port/private" ]; then
+        print_status "$RED" "  ❌ NPM_CONFIG_USERCONFIG registry not honored"
+        test_failures=$((test_failures + 1))
+      else
+        print_status "$GREEN" "  ✅ NPM_CONFIG_USERCONFIG honored"
+      fi
       PATH="$ping_stub_dir:$PATH"
       if ( no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://127.0.0.1:${port}/" check_prerequisites >/dev/null ); then
         print_status "$GREEN" "  ✅ Registry check passes when ping fails"
@@ -3140,14 +3246,35 @@ PY
         print_status "$RED" "  ❌ Credentialed registry check failed"
         test_failures=$((test_failures + 1))
       fi
+
+      : > "$logfile"
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://user:p%40ss@127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F "p%40ss" >/dev/null; then
+        print_status "$RED" "  ❌ Percent-encoded registry password leaked to output"
+        test_failures=$((test_failures + 1))
+      elif printf '%s\n' "$check_out" | grep -F "***@127.0.0.1:${port}" >/dev/null \
+        && grep -F "Basic" "$logfile" >/dev/null; then
+        print_status "$GREEN" "  ✅ Encoded @ password was masked and authenticated"
+      else
+        print_status "$RED" "  ❌ Encoded @ password test failed"
+        test_failures=$((test_failures + 1))
+      fi
+
+      : > "$logfile"
+      check_out=$(no_proxy="127.0.0.1,localhost" NO_PROXY="127.0.0.1,localhost" npm_config_registry="http://user:p@ss@127.0.0.1:${port}/" check_network 2>&1) || true
+      if printf '%s\n' "$check_out" | grep -F 'p@ss' >/dev/null; then
+        print_status "$RED" "  ❌ Raw @ password leaked"
+        test_failures=$((test_failures + 1))
+      elif printf '%s\n' "$check_out" | grep -F "***@127.0.0.1:${port}" >/dev/null \
+        && grep -F "Basic" "$logfile" >/dev/null; then
+        print_status "$GREEN" "  ✅ Raw @ credentialed registry falls back to npm"
+      else
+        print_status "$RED" "  ❌ Raw @ registry npm fallback failed"
+        test_failures=$((test_failures + 1))
+      fi
     fi
-    if [ -n "$stub_pid" ]; then
-      kill "$stub_pid" 2>/dev/null || true
-      wait "$stub_pid" 2>/dev/null || true
-    fi
-    rm -rf "$stub_dir"
   fi
-  rm -rf "$ping_stub_dir"
+  cleanup_self_test_resources
   
   # Report results
   if [ $test_failures -eq 0 ]; then
