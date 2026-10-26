@@ -455,6 +455,10 @@ describe('script runner', () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-env-'));
     const scriptPath = path.join(directory, 'print-env.sh');
     try {
+      // Bash is /bin/bash on macOS and can be /usr/bin/bash on Linux.
+      const bashPath = spawnSync('which', ['bash'], { encoding: 'utf8' }).stdout.trim();
+      assert.ok(path.isAbsolute(bashPath));
+      const runnerPath = path.dirname(bashPath);
       await fs.writeFile(
         scriptPath,
         '#!/bin/bash\nprintf "PATH=%s\\nHOME=%s\\nTMPDIR=%s\\nNODE_ENV=%s\\nHTTP_PROXY=%s\\nHTTPS_PROXY=%s\\nNO_PROXY=%s\\nhttp_proxy=%s\\nhttps_proxy=%s\\nno_proxy=%s\\nNODE_EXTRA_CA_CERTS=%s\\nSECRET=%s\\nNPM_TOKEN=%s\\n" "$PATH" "$HOME" "$TMPDIR" "$NODE_ENV" "${HTTP_PROXY-unset}" "${HTTPS_PROXY-unset}" "${NO_PROXY-unset}" "${http_proxy-unset}" "${https_proxy-unset}" "${no_proxy-unset}" "${NODE_EXTRA_CA_CERTS-unset}" "${SECRET-unset}" "${NPM_TOKEN-unset}"\n',
@@ -463,7 +467,7 @@ describe('script runner', () => {
         scriptPath,
         { args: [], cwd: directory },
         {
-          PATH: '/usr/bin',
+          PATH: runnerPath,
           HOME: '/tmp/mcp-home',
           TMPDIR: '/tmp/mcp-tmp',
           HTTP_PROXY: 'http://proxy.example:8080',
@@ -480,7 +484,7 @@ describe('script runner', () => {
       );
       assert.equal(
         output.stdout,
-        'PATH=/usr/bin\nHOME=/tmp/mcp-home\nTMPDIR=/tmp/mcp-tmp\nNODE_ENV=development\nHTTP_PROXY=http://proxy.example:8080\nHTTPS_PROXY=http://proxy.example:8443\nNO_PROXY=localhost\nhttp_proxy=http://proxy.example:8081\nhttps_proxy=http://proxy.example:8444\nno_proxy=127.0.0.1\nNODE_EXTRA_CA_CERTS=/tmp/mcp-ca.pem\nSECRET=unset\nNPM_TOKEN=unset\n',
+        `PATH=${runnerPath}\nHOME=/tmp/mcp-home\nTMPDIR=/tmp/mcp-tmp\nNODE_ENV=development\nHTTP_PROXY=http://proxy.example:8080\nHTTPS_PROXY=http://proxy.example:8443\nNO_PROXY=localhost\nhttp_proxy=http://proxy.example:8081\nhttps_proxy=http://proxy.example:8444\nno_proxy=127.0.0.1\nNODE_EXTRA_CA_CERTS=/tmp/mcp-ca.pem\nSECRET=unset\nNPM_TOKEN=unset\n`,
       );
     } finally {
       await fs.rm(directory, { recursive: true, force: true });

@@ -4,7 +4,13 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test-script:
@@ -27,6 +33,9 @@ jobs:
       
     - name: Test script self-check
       run: ./create-next-starter.sh --test
+
+    - name: Test registry stub cleanup after shell-only SIGTERM
+      run: node --test scripts/test-registry-sigterm.cjs
       
     - name: Test help command
       run: ./create-next-starter.sh --help

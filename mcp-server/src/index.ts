@@ -8,14 +8,17 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runScript } from './run.js';
+import { installProcessGuards, runScript } from './run.js';
 import { dispatchTool, listTools, readServerConfig } from './tools.js';
 
 const config = readServerConfig(process.env);
-const scriptPath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../create-next-starter.sh',
-);
+const configuredScript = process.env.NEXT_STARTER_MCP_SCRIPT_PATH?.trim();
+const scriptPath = configuredScript
+  ? path.resolve(configuredScript)
+  : path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../create-next-starter.sh',
+    );
 
 const server = new Server(
   {
@@ -43,6 +46,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   });
 });
 
+installProcessGuards();
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error('Next.js Starter MCP Server running on stdio');
