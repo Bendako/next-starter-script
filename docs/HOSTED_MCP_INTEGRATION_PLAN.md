@@ -3,7 +3,24 @@
 **Date:** 2026-10-24
 **Decision:** Advance `hosted/http` (MCP over Streamable HTTP with Clerk OAuth) as the future service. Keep the local Bash/stdio MCP client supported. Do not expose `web-app/` publicly; it is a separate legacy prototype, not the backend to revive.
 
-## PR dependency graph
+## Snapshot update — 2026-10-27 (supersedes historical status below)
+
+Checked against GitHub on 2026-10-27. This is **tracking/documentation only**, not merge authorization.
+
+| Area | Current evidence | Required action |
+| --- | --- | --- |
+| Local baseline | PRs [#30](https://github.com/Bendako/next-starter-script/pull/30), [#29](https://github.com/Bendako/next-starter-script/pull/29), and [#34](https://github.com/Bendako/next-starter-script/pull/34) are merged. Current main: `8dbc098`. CI and MCP protocol (both `ci/mcp` and `qa/mcp`) passed on that SHA. | Keep these as the tested integration baseline; don't re-merge. |
+| Generated Convex security | [#43](https://github.com/Bendako/next-starter-script/pull/43) is a draft authorization/privacy fix. Its original head `0e7bd86` passed only the original CI suite, was based on `7e9b8c6`, and was 43 commits behind main on 2026-10-27. | Reconcile with current main, run all applicable protocol/scaffold checks on the **new** exact head, obtain independent review, and seek explicit owner approval. Generated projects previously created need their own migration; a merge does not retrofit them. |
+| Hosted transport | [#28](https://github.com/Bendako/next-starter-script/pull/28) is still draft. Its main ancestor predates the isolation fixes in #34. | Integrate #28 with the new main and validate denied/public interface behavior, timeout and cleanup tests on the combined code. |
+| Hosted OAuth | [#31](https://github.com/Bendako/next-starter-script/pull/31) is still draft, stacked on #28 rather than main. [#33](https://github.com/Bendako/next-starter-script/issues/33) documents the remaining production Vercel 403 gate and need for audience binding and a real external-client session. | Integrate only after #28; implement and prove verified Clerk OAuth on Vercel. Resolve Convex server credential and Deployment Protection decisions with owner before deployment. |
+| Payments | [#26](https://github.com/Bendako/next-starter-script/pull/26) (draft, stacked) and [#38](https://github.com/Bendako/next-starter-script/pull/38) (non-draft, main base) both implement a Polar adapter. CI for #38 head `7dba772` is **action_required**, not success. | Compare overlapping implementations, select one supported path; don't merge both adapters blindly. Require current-head CI, durable Convex webhook/entitlement integration, sandbox tests and owner approval before enabling checkout. |
+| Legacy web | [#35](https://github.com/Bendako/next-starter-script/pull/35) is draft fail-closed containment. [#37](https://github.com/Bendako/next-starter-script/issues/37) reports critical/high vulnerabilities in `web-app/`. | Do not expose the legacy app; choose remediation or archive before reuse. |
+| Review and release policy | This PR [#36](https://github.com/Bendako/next-starter-script/pull/36) is still open; `AGENTS.md`, CodeQL and merge-policy docs are not on main. There is no repository Ruleset in the accessible GitHub API; classic branch protection read returned 403. | Review and explicitly approve #36 as a sensitive policy/CI change, re-run checks on the exact head, and separately verify the actual GitHub protection settings. |
+| Factory automation | [#27](https://github.com/Bendako/next-starter-script/issues/27) and [#32](https://github.com/Bendako/next-starter-script/issues/32) remain open. | Prove independent review and end-to-end canary before claiming complete autonomous factory operation. |
+
+**Current recommended integration order:** first make the generated Convex templates safe (#43) and review/publish the gating policy (#36), each with current-head verification and individual owner approval; reconcile legacy web exposure (#35/#37) in parallel; only then integrate hosted transport (#28), OAuth (#31/#33), quotas/artifact delivery (#15/#16), and the selected Polar adapter (#26 or #38 plus #14). The cost experiment #22 remains **do not merge**.
+
+## Historical PR dependency graph (as of 2026-10-24)
 
 | Order | PR | Base now | Integration action |
 | --- | --- | --- | --- |
