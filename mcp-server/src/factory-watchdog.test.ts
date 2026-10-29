@@ -76,7 +76,7 @@ test('old review never passes, requested changes and review storm fail', () => {
   s.prs[0].reviews![0].result = 'changes_requested';
   assert.equal(status(s, 'reviewer'), 'FAIL');
   const r = { ...s.prs[0].reviews![1], sha: 'current' };
-  s.prs[0].reviews = Array.from({ length: 4 }, () => ({ ...r }));
+  s.prs[0].reviews = Array.from({ length: 4 }, (_, i) => ({ ...r, at: `2026-10-24T12:0${i}:00Z` }));
   assert.equal(status(s, 'codex'), 'FAIL');
   s.prs[0].reviews.pop();
   assert.equal(status(s, 'codex'), 'PASS');
@@ -100,4 +100,71 @@ test('stale independent review is separate from current Codex evidence', () => {
   const s = fixture(); s.prs[0].reviews![0].sha = 'old';
   assert.equal(status(s, 'reviewer'), 'STALE');
   assert.equal(status(s, 'codex'), 'PASS');
+});
+
+test('invalid current-head check or review cannot hide behind valid green evidence', () => {
+  for (const invalid of [{ at: 'bad' }, { evidenceUrl: '' }, { at: '2026-10-24T14:00:00Z' }]) {
+    for (const result of ['failure', 'success'] as const) {
+      const s = fixture();
+      s.prs[0].checks!.push({ ...s.prs[0].checks![0], result, ...invalid });
+      assert.equal(status(s, 'ci/mcp'), 'UNVERIFIED');
+      assert.equal(status(s, 'qa/mcp'), 'PASS');
+    }
+    for (const kind of ['reviewer', 'codex'] as const) {
+      const s = fixture();
+      s.prs[0].reviews!.push({ ...evidence, sha: 'current', kind, result: 'changes_requested', ...invalid });
+      assert.equal(status(s, kind), 'UNVERIFIED');
+    }
+  }
+});
+
+test('commented reviews need a parsed verdict; blocking feedback persists until formal resolution', () => {
+  for (const kind of ['reviewer', 'codex'] as const) {
+    const s = fixture();
+    const comment = { ...evidence, sha: 'current', kind, result: 'commented' as const };
+    s.prs[0].reviews = [comment];
+    assert.equal(status(s, kind), 'UNVERIFIED');
+    s.prs[0].reviews = [{ ...comment, verdict: 'changes_needed' }];
+    assert.equal(status(s, kind), 'FAIL');
+    s.prs[0].reviews = [{ ...comment, verdict: 'approved' }];
+    assert.equal(status(s, kind), 'PASS');
+    for (const verdict of [undefined, 'approved'] as const) {
+      s.prs[0].reviews = [{ ...comment, result: 'changes_requested' },
+        { ...comment, at: '2026-10-24T12:10:00Z', verdict }];
+      assert.equal(status(s, kind), 'FAIL');
+    }
+    for (const result of ['approved', 'dismissed'] as const) {
+      s.prs[0].reviews = [{ ...comment, result: 'changes_requested' },
+        { ...comment, result, at: '2026-10-24T12:20:00Z' }];
+      assert.equal(status(s, kind), result === 'approved' ? 'PASS' : 'UNVERIFIED');
+    }
+  }
+});
+
+test('equal timestamp checks and reviews are unverified regardless of array order', () => {
+  for (const reverse of [false, true]) {
+    const s = fixture();
+    const check = s.prs[0].checks![0];
+    s.prs[0].checks = [check, { ...check, result: 'failure' }];
+    const review = s.prs[0].reviews![0];
+    s.prs[0].reviews = [review, { ...review, result: 'changes_requested' }];
+    if (reverse) { s.prs[0].checks.reverse(); s.prs[0].reviews.reverse(); }
+    assert.equal(status(s, 'ci/mcp'), 'UNVERIFIED');
+    assert.equal(status(s, 'reviewer'), 'UNVERIFIED');
+  }
+});
+
+test('fresh pending rerun uses check time rather than old push time', () => {
+  const s = fixture();
+  s.prs[0].checks!.push({ ...s.prs[0].checks![0], result: 'pending', at: '2026-10-24T12:59:00Z' });
+  assert.equal(status(s, 'ci/mcp'), 'UNVERIFIED');
+  s.fetchedAt = '2026-10-24T13:10:00Z';
+  assert.equal(status(s, 'ci/mcp'), 'STALE');
+});
+
+test('serialized stages contain only the declared report fields', () => {
+  const keys = ['subject', 'stage', 'status', 'evidenceUrl', 'sha', 'at', 'owner', 'next'];
+  for (const stage of JSON.parse(JSON.stringify(evaluate(fixture())))) {
+    assert.ok(Object.keys(stage).every(key => keys.includes(key)));
+  }
 });

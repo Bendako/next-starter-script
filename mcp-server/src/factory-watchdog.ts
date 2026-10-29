@@ -16,6 +16,8 @@ export interface ReviewFacts extends Evidence {
   sha: string;
   kind: 'reviewer' | 'codex';
   result: 'approved' | 'changes_requested' | 'commented' | 'dismissed';
+  /** Explicit verdict parsed by a trusted collector, never inferred from occurrence. */
+  verdict?: 'approved' | 'changes_needed';
 }
 export interface PrFacts {
   url: string;
@@ -60,9 +62,29 @@ export function evaluate(snapshot: Snapshot, policy: Readonly<Policy> = defaultP
     const time = Date.parse(at);
     return Number.isFinite(time) && time <= now ? (now - time) / 60000 : undefined;
   };
-  const valid = (e: Evidence) => Boolean(e.evidenceUrl) && age(e.at) !== undefined;
-  const latest = <T extends Evidence>(facts: T[]): T | undefined =>
-    facts.filter(valid).reduce<T | undefined>((a, b) => !a || Date.parse(b.at) >= Date.parse(a.at) ? b : a, undefined);
+  const valid = (e: Evidence) => Boolean(e.evidenceUrl.trim()) && age(e.at) !== undefined;
+  // Ambiguous timestamps cannot establish a unique latest result.
+  const latest = <T extends Evidence>(facts: T[]): T | undefined => {
+    const readable = facts.filter(valid);
+    const time = Math.max(...readable.map(f => Date.parse(f.at)));
+    const newest = readable.filter(f => Date.parse(f.at) === time);
+    return newest.length === 1 ? newest[0] : undefined;
+  };
+  const evidenceFields = (e?: Evidence) => e ? { evidenceUrl: e.evidenceUrl, at: e.at } : {};
+  const reviewStatus = (reviews: ReviewFacts[]): StageStatus => {
+    if (reviews.some(r => !valid(r))) return 'UNVERIFIED';
+    const review = latest(reviews);
+    if (!review) return 'UNVERIFIED';
+    // Only a later formal approval or dismissal clears blocking feedback.
+    const blockers = reviews.filter(r => r.result === 'changes_requested'
+      || (r.result === 'commented' && r.verdict === 'changes_needed'));
+    const resolutions = reviews.filter(r => r.result === 'approved' || r.result === 'dismissed');
+    const lastResolution = Math.max(...resolutions.map(r => Date.parse(r.at)));
+    if (blockers.some(r => Date.parse(r.at) >= lastResolution)) return 'FAIL';
+    if (review.result === 'approved') return 'PASS';
+    if (review.result === 'commented' && review.verdict === 'approved') return 'PASS';
+    return 'UNVERIFIED';
+  };
   const stages: Stage[] = [];
   for (const issue of snapshot.issues) {
     for (const [stage, fact, owner] of [
@@ -70,18 +92,24 @@ export function evaluate(snapshot: Snapshot, policy: Readonly<Policy> = defaultP
       ['engineer-response', issue.engineerResponse, 'engineer'],
     ] as const) {
       stages.push({ subject: issue.url, stage, owner, status: fact && valid(fact) ? 'PASS' : 'UNVERIFIED',
-        ...(fact && valid(fact) ? fact : { next: 'Collect timestamped stage evidence.' }) });
+        ...(fact && valid(fact) ? evidenceFields(fact) : { next: 'Collect timestamped stage evidence.' }) });
     }
   }
   for (const pr of snapshot.prs) {
     const add = (stage: StageName, status: StageStatus, owner: Stage['owner'], next?: string, evidence?: Evidence & { sha?: string }) =>
-      stages.push({ subject: pr.url, stage, status, owner, sha: pr.head.sha, evidenceUrl: pr.url, next, ...evidence });
+      stages.push({ subject: pr.url, stage, status, owner, sha: pr.head.sha, evidenceUrl: pr.url, next, ...evidenceFields(evidence),
+        ...(evidence?.sha ? { sha: evidence.sha } : {}) });
     const headAge = age(pr.head.pushedAt);
     for (const name of ['ci/mcp', 'qa/mcp'] as const) {
       if (!pr.mcpApplicable) { add(name, 'NOT_APPLICABLE', 'engineer'); continue; }
       if (!pr.checks || headAge === undefined) { add(name, 'UNVERIFIED', 'engineer', 'Collect current-head checks and push time.'); continue; }
       const matching = pr.checks.filter(c => c.name === name);
-      const current = latest(matching.filter(c => c.head_sha === pr.head.sha));
+      const currentFacts = matching.filter(c => c.head_sha === pr.head.sha);
+      if (currentFacts.some(c => !valid(c)) || (currentFacts.length > 0 && !latest(currentFacts))) {
+        add(name, 'UNVERIFIED', 'engineer', 'Resolve invalid or tied current-head check evidence.');
+        continue;
+      }
+      const current = latest(currentFacts);
       if (!current) {
         const old = latest(matching.filter(c => c.head_sha !== pr.head.sha));
         add(name, old ? 'STALE' : headAge > policy.ciGraceMinutes ? 'FAIL' : 'UNVERIFIED', 'engineer',
@@ -89,28 +117,33 @@ export function evaluate(snapshot: Snapshot, policy: Readonly<Policy> = defaultP
       } else {
         const status: StageStatus = current.result === 'success' ? 'PASS' : current.result === 'failure' ? 'FAIL'
           : ['cancelled', 'superseded'].includes(current.result) ? 'STALE'
-          : current.result === 'pending' && headAge > policy.ciGraceMinutes ? 'STALE' : 'UNVERIFIED';
+          : current.result === 'pending' && age(current.at)! > policy.ciGraceMinutes ? 'STALE' : 'UNVERIFIED';
         add(name, status, 'engineer', status === 'PASS' ? undefined : 'Inspect and re-run the current-head check.', current);
       }
     }
     for (const kind of ['reviewer', 'codex'] as const) {
       const all = pr.reviews?.filter(r => r.kind === kind);
-      const current = all?.filter(r => r.sha === pr.head.sha && valid(r));
+      const current = all?.filter(r => r.sha === pr.head.sha);
       const review = latest(current ?? []);
       if (kind === 'codex' && current && current.length > policy.maxCodexReviewsPerSha) {
         add(kind, 'FAIL', 'reviewer', 'Investigate duplicate review triggers.', review);
-      } else if (review) {
-        add(kind, review.result === 'changes_requested' ? 'FAIL' : review.result === 'dismissed' ? 'UNVERIFIED' : 'PASS', 'reviewer',
-          review.result === 'changes_requested' ? 'Resolve review feedback and request a re-check.' : undefined, review);
+      } else if (current?.length) {
+        const status = reviewStatus(current);
+        add(kind, status, 'reviewer', status === 'PASS' ? undefined : 'Resolve review feedback or ambiguous evidence and request a re-check.', review);
       } else if (pr.draft) {
         add(kind, 'NOT_APPLICABLE', 'reviewer');
       } else {
         const readyAge = pr.readyAt ? age(pr.readyAt) : undefined;
         const elapsed = readyAge !== undefined && headAge !== undefined ? Math.min(readyAge, headAge) : undefined;
         const old = latest(all ?? []);
-        add(kind, !all || elapsed === undefined ? 'UNVERIFIED'
-          : kind === 'reviewer' && old ? 'STALE' : elapsed > policy.reviewGraceMinutes ? 'FAIL' : old ? 'STALE' : 'UNVERIFIED', 'reviewer',
-        'Verify review evidence on the current head after the readiness/push grace period.', old);
+        let status: StageStatus = 'UNVERIFIED';
+        if (all && elapsed !== undefined) {
+          if (kind === 'reviewer' && old) status = 'STALE';
+          else if (elapsed > policy.reviewGraceMinutes) status = 'FAIL';
+          else if (old) status = 'STALE';
+        }
+        add(kind, status, 'reviewer',
+          'Verify review evidence on the current head after the readiness/push grace period.', old);
       }
     }
   }
@@ -118,6 +151,6 @@ export function evaluate(snapshot: Snapshot, policy: Readonly<Policy> = defaultP
     && snapshot.rulesetEvidence && valid(snapshot.rulesetEvidence);
   stages.push({ subject: 'repository', stage: 'merge-gate', owner: 'owner',
     status: !gateKnown ? 'UNVERIFIED' : ['ci/mcp', 'qa/mcp'].every(c => snapshot.requiredChecks?.includes(c)) ? 'PASS' : 'FAIL',
-    ...(gateKnown ? snapshot.rulesetEvidence : {}), next: 'Verify enforced required checks for the target branch; settings alone do not prove the full factory loop.' });
+    ...(gateKnown ? evidenceFields(snapshot.rulesetEvidence) : {}), next: 'Verify enforced required checks for the target branch; settings alone do not prove the full factory loop.' });
   return stages;
 }

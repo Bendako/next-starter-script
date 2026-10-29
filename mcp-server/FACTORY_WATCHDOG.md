@@ -8,12 +8,16 @@ The caller supplies complete observations and `fetchedAt`. Omitted checks or
 reviews mean unreadable; empty arrays mean successfully read with no results.
 Evidence needs a source URL and timestamp. A future collector must authenticate
 review identities before assigning `reviewer` or `codex`. Ordinary comments are
-not review evidence. A commented review proves occurrence, not approval. Stage
+not review evidence. A commented review is unverified unless a trusted collector supplies an explicit
+`verdict` (`approved` or `changes_needed`). Blocking feedback persists until a
+later formal approval or dismissal; a comment cannot clear it. Stage
 PASS never asserts overall readiness or genuine protocol E2E.
 
-Only current-head checks/reviews count. Latest timestamped results win.
+Only current-head checks/reviews count. Latest timestamped checks win. Tied latest timestamps are unverified, independent
+of input order. Any invalid current-head fact makes its stage unverified instead
+of being silently dropped. Stage output includes only declared report fields.
 Cancelled/superseded checks are stale; skipped checks are unverified. Pending
-checks become stale after the CI grace. Missing checks fail after 10 minutes,
+checks become stale after the CI grace measured from the check's own time. Missing checks fail after 10 minutes,
 including stacked-base PRs. MCP applicability is explicit rollout policy.
 Missing non-draft reviews fail 30 minutes after the later of readiness and push;
 unknown timing/access is unverified. Drafts without reviews are N/A. More than
