@@ -4,7 +4,7 @@ import { collect, pages, parseVerdict, pilot, report, type Get } from './factory
 const at = '2026-10-24T12:00:00Z';
 const url = `https://github.com/${pilot}/pull/1`;
 const head = 'a'.repeat(40);
-const review = (body: string, time = at, login = 'independent-reviewer') => ({ html_url: url, submitted_at: time,
+const review = (body: string | null, time = at, login = 'independent-reviewer') => ({ html_url: url, submitted_at: time,
   commit_id: head, state: 'COMMENTED', body, user: { login } });
 function api(overrides: Record<string, unknown> = {}): Get {
   const fixtures: Record<string, unknown> = {
@@ -79,7 +79,7 @@ test('report fails on factual failures and escapes untrusted markdown', async ()
   const c = await collect(api({ '/pulls/1/reviews': [review('Verdict: changes needed')] }), '2026-10-24T13:00:00Z', 'independent-reviewer');
   c.gaps.push('<script>|bad\nnext');
   assert.equal(report(c).failed, true);
-  assert.doesNotMatch(report(c).markdown, /<script>/);
+  assert.doesNotMatch(report(c).markdown, /<script/i);
 });
 
 test('head changes during collection discard observed successes', async () => {
@@ -89,4 +89,19 @@ test('head changes during collection discard observed successes', async () => {
 test('unknown review state cannot inherit a ready verdict', async () => {
   const c = await collect(api({ '/pulls/1/reviews': [{ ...review('Verdict: ready'), state: 'UNKNOWN' }] }), '2026-10-24T13:00:00Z', 'independent-reviewer');
   assert.equal(report(c).stages.find(s => s.stage === 'reviewer')?.status, 'UNVERIFIED');
+});
+
+test('empty reviewer comments on the same head preserve an earlier ready verdict', async () => {
+  for (const body of ['', null, ' \r\n\t']) {
+    const empty = review(body, '2026-10-24T12:20:00Z');
+    for (const [rows, expected] of [
+      [[review('Verdict: ready'), empty], 'PASS'],
+      [[empty], 'UNVERIFIED'],
+      [[review('Verdict: changes needed'), empty], 'FAIL'],
+    ] as const) {
+      const c = await collect(api({ '/pulls/1/reviews': rows }), '2026-10-24T13:00:00Z', 'independent-reviewer');
+      assert.equal(report(c).stages.find(s => s.stage === 'reviewer')?.status, expected);
+      assert.equal(c.snapshot.prs[0].reviews?.length, rows.length - 1);
+    }
+  }
 });

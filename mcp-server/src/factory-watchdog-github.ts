@@ -81,6 +81,8 @@ export async function collect(get: Get, fetchedAt: string, reviewerLogin: string
       if (!kind) continue;
       const states: Record<string, ReviewFacts['result'] | undefined> = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes_requested', COMMENTED: 'commented', DISMISSED: 'dismissed' };
       const result = states[r.state];
+      // Empty reviewer comments carry no verdict and do not supersede earlier reviews.
+      if (kind === 'reviewer' && result === 'commented' && !r.body?.trim()) continue;
       // Unknown review states and malformed verdicts are represented as unverified comments.
       const verdict = result && result !== 'dismissed' ? parseVerdict(r.body) : undefined;
       mapped.push({ kind, sha: r.commit_id, result: !verdict && /(?:^|\n)\s*verdict\s*:/i.test(r.body ?? '') ? 'commented' : result ?? 'commented', verdict,

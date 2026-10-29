@@ -17,7 +17,7 @@ configuration leaves that stage UNVERIFIED. Never infer identity from PR authors
 or from text mentioning a reviewer.
 
 Run `npm ci`, `npm run lint`, `npm test`, and `npm run build` in both `mcp-server`
-and `hosted` with npm 10. To collect locally from `mcp-server`, supply an existing
+and `hosted` with npm 10.9.8. To collect locally from `mcp-server`, supply an existing
 read-only token through the environment, set `GITHUB_REPOSITORY` to the pilot,
 and run `npx tsx src/factory-watchdog-run.ts`. Never put tokens in commands,
 reports, fixtures, or committed files. Only GET requests to fixed pilot REST paths
@@ -35,8 +35,10 @@ The latest timestamped independent-reviewer verdict on the same head wins,
 including COMMENT-only re-reviews: `changes needed` then `ready` is PASS; the
 reverse is FAIL. Array order has no effect. Formal approvals also count, while
 a dismissal alone is UNVERIFIED. Codex remains separate, retaining PR 1's formal
-resolution rule for blockers and three-events-per-head storm cap. Any latest
-comment without a recognized verdict is UNVERIFIED, including after a blocker.
+resolution rule for blockers and three-events-per-head storm cap. Empty-body
+independent-reviewer COMMENT records (including null or whitespace-only bodies) carry no verdict and are ignored, preserving any earlier same-head verdict.
+Any latest nonempty comment without a recognized verdict is UNVERIFIED, including
+after a blocker.
 Tied latest timestamps and invalid current-head evidence are UNVERIFIED.
 
 The parser requires exactly one standalone `Verdict: ready` or
