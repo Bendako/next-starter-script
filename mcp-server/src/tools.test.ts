@@ -172,18 +172,105 @@ describe('hosted mode', () => {
         run: runner.run,
       });
       assert.notEqual(result.isError, true);
-      assert.deepEqual(runner.calls, [
-        {
-          cwd: outputRoot,
-          args: ['--skip-convex', '--skip-clerk', '--template', 'minimal', '--', 'my-app'],
-        },
+      assert.equal(runner.calls.length, 1);
+      const firstCwd = runner.calls[0].cwd;
+      assert.equal(path.dirname(firstCwd), outputRoot);
+      assert.deepEqual(runner.calls[0].args, [
+        '--skip-convex', '--skip-clerk', '--template', 'minimal', '--', 'my-app',
       ]);
       assert.equal(runner.calls[0].args.includes('--force'), false);
-      assert.match(result.content[0].text, new RegExp(`Location: ${outputRoot}/my-app`));
-      const stat = await fs.stat(outputRoot);
-      assert.equal(stat.isDirectory(), true);
+      assert.ok(result.content[0].text.includes(`Location: ${firstCwd}/my-app`));
+      assert.equal((await fs.stat(firstCwd)).isDirectory(), true);
+
+      // Two callers choosing the same project name must never share a work directory.
+      const second = await dispatchTool({
+        name: 'create_nextjs_app',
+        args: { name: 'my-app', template: 'minimal', skipConvex: true, skipClerk: true },
+        config: hostedConfig(outputRoot),
+        run: runner.run,
+      });
+      assert.notEqual(second.isError, true);
+      assert.equal(runner.calls.length, 2);
+      assert.equal(path.dirname(runner.calls[1].cwd), outputRoot);
+      assert.notEqual(runner.calls[1].cwd, firstCwd);
+      assert.equal((await fs.stat(runner.calls[1].cwd)).isDirectory(), true);
     } finally {
       await fs.rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('failed hosted creation cleans up its isolated workspace', async () => {
+    const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-hosted-fail-'));
+    let attemptedCwd = '';
+    try {
+      const result = await dispatchTool({
+        name: 'create_nextjs_app',
+        args: { name: 'my-app', skipClerk: true, skipConvex: true },
+        config: hostedConfig(outputRoot),
+        run: async (call) => {
+          attemptedCwd = call.cwd;
+          await fs.writeFile(path.join(call.cwd, 'partial.txt'), 'partial build output');
+          throw new Error('simulated generator failure');
+        },
+      });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /simulated generator failure/);
+      assert.ok(attemptedCwd);
+      await assert.rejects(fs.access(attemptedCwd));
+      assert.deepEqual(await fs.readdir(outputRoot), []);
+    } finally {
+      await fs.rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('concurrent same-name hosted calls keep separate workspaces and results', { timeout: 5_000 }, async () => {
+    const outputRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-hosted-parallel-'));
+    const seen = new Set<string>();
+    let release!: () => void;
+    const bothStarted = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      const results = await Promise.all(['caller-a', 'caller-b'].map((marker) => dispatchTool({
+        name: 'create_nextjs_app',
+        args: { name: 'same-app', skipClerk: true, skipConvex: true },
+        config: hostedConfig(outputRoot),
+        run: async (call) => {
+          assert.equal(seen.has(call.cwd), false, 'requests share their workspace');
+          seen.add(call.cwd);
+          await fs.writeFile(path.join(call.cwd, 'owner'), marker);
+          if (seen.size === 2) release();
+          await bothStarted;
+          assert.equal(await fs.readFile(path.join(call.cwd, 'owner'), 'utf8'), marker);
+          return { stdout: marker, stderr: '' };
+        },
+      }).finally(() => release())));
+      assert.equal(seen.size, 2);
+      results.forEach((result) => assert.notEqual(result.isError, true));
+    } finally {
+      await fs.rm(outputRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('timed-out hosted generation kills descendants before workspace cleanup', { timeout: 10_000 }, async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-hosted-timeout-'));
+    const outputRoot = path.join(root, 'workspaces');
+    const script = path.join(root, 'linger.sh');
+    try {
+      const sentinel = path.join(root, 'escaped-descendant');
+      await fs.writeFile(script, '#!/bin/bash\n(sleep 2 && touch "$1") &\nwait\n');
+      const result = await dispatchTool({
+        name: 'create_nextjs_app',
+        args: { name: 'timeout-app', skipClerk: true, skipConvex: true },
+        config: hostedConfig(outputRoot),
+        run: (call) => runScript(script, { ...call, args: [sentinel] }, { ...process.env, NEXT_STARTER_MCP_SCRIPT_TIMEOUT_MS: '300' }),
+      });
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, /Script timed out/);
+      assert.deepEqual(await fs.readdir(outputRoot), []);
+      await new Promise((resolve) => setTimeout(resolve, 2_300));
+      assert.deepEqual(await fs.readdir(outputRoot), []);
+      await assert.rejects(fs.access(sentinel));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
     }
   });
 });
@@ -310,6 +397,8 @@ describe('server config', () => {
     assert.deepEqual(readServerConfig({ [HOSTED_ENV_FLAG]: '0' }), { mode: 'local' });
     assert.deepEqual(readServerConfig({ [HOSTED_ENV_FLAG]: 'false' }), { mode: 'local' });
     assert.deepEqual(readServerConfig({ [HOSTED_ENV_FLAG]: '' }), { mode: 'local' });
+    assert.throws(() => readServerConfig({ [HOSTED_ENV_FLAG]: 'tru' }), /Invalid NEXT_STARTER_MCP_HOSTED/);
+    assert.throws(() => readServerConfig({ [HOSTED_ENV_FLAG]: 'yes' }), /Invalid NEXT_STARTER_MCP_HOSTED/);
     const hosted = readServerConfig({ [HOSTED_ENV_FLAG]: '1' });
     const hostedWord = readServerConfig({ [HOSTED_ENV_FLAG]: ' TRUE ' });
     assert.equal(hosted.mode, 'hosted');

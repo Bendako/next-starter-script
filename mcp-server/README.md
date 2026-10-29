@@ -193,6 +193,20 @@ npm run build
 npm run clean
 ```
 
+### Protocol checks
+`npm test` covers input validation in process. These two commands build `dist/index.js` and talk to that server over stdio.
+
+```bash
+npm run test:protocol:ci
+npm run test:protocol:qa
+```
+
+`test:protocol:ci` is the fast protocol and security set. GitHub Actions runs it on Ubuntu. macOS is not covered there.
+
+`test:protocol:qa` creates the minimal, default, and full templates, then runs `npm run lint`, `npx tsc --noEmit`, and `npm run build`. Convex and Clerk need credentials, so every template passes `skipConvex` and `skipClerk`. The check requires the script's Convex skip lines. It also requires `setup.log` to contain `Option: Skip Convex setup enabled`, `Option: Skip Clerk setup enabled`, `SKIP_CONVEX=true`, and `SKIP_CLERK=true`. The generated app must not depend on `convex` or `@clerk/nextjs`. The script prints no Clerk skip line. The log line is the explicit record. A failed run writes `mcp-server/qa-artifacts/` for upload.
+
+Child scripts are process-group leaders on Linux and macOS. The server kills that group on exit, on SIGINT, on SIGTERM, and when stdin closes. Windows is unsupported. It only signals the direct child. `taskkill /T` would be required there.
+
 ## File Structure 📁
 
 ```
@@ -201,7 +215,8 @@ mcp-server/
 │   ├── index.ts          # Stdio server
 │   ├── tools.ts          # Tool definitions and input validation
 │   ├── run.ts            # Script execution
-│   └── tools.test.ts     # Input and argv tests
+│   ├── tools.test.ts     # Input and argv tests
+│   └── protocol.e2e.ts   # Stdio protocol checks
 ├── dist/                 # Built JavaScript (generated)
 ├── package.json          # Dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration
@@ -235,7 +250,7 @@ Check the console for error messages and script execution details.
 
 ## Hosted mode
 
-Set `NEXT_STARTER_MCP_HOSTED=1` (or `true`) before starting the server when callers are not trusted. The server then omits `directory` and `force` from `tools/list` and rejects those arguments. New projects are written under a directory the server chooses inside the system temp folder. Leave the variable unset for local stdio. Local callers can still pass `directory` and `force`.
+Set `NEXT_STARTER_MCP_HOSTED=1` (or `true`) before starting the server when callers are not trusted. The server then omits `directory` and `force` from `tools/list` and rejects those arguments. Each hosted create request receives a unique working directory inside the system temp folder, even when different callers choose the same project name. Failed generations remove their own workspace; successful workspaces are kept for the delivery layer, which must clean them up after packaging. Leave the variable unset for local stdio. Invalid nonempty values (for example `tru`) make the server fail to start rather than silently enable local-only filesystem options. Local callers can still pass `directory` and `force`.
 
 ## License 📄
 
@@ -243,4 +258,4 @@ MIT License - Use freely in your projects!
 
 ---
 
-**🎯 Ready to create amazing Next.js applications with Claude!** This MCP server brings the power of the professional starter script directly into your Claude Desktop workflow. 
+**🎯 Ready to create amazing Next.js applications with Claude!** This MCP server brings the power of the professional starter script directly into your Claude Desktop workflow.

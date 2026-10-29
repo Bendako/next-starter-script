@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import os from 'node:os';
@@ -107,7 +108,11 @@ export function readServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
       outputRoot: path.resolve(os.tmpdir(), 'nextjs-starter-mcp'),
     };
   }
-  return { mode: 'local' };
+  if (flag === undefined || flag === '' || flag === '0' || flag === 'false') {
+    return { mode: 'local' };
+  }
+  // Do not silently expose the local filesystem tools if a hosted flag is misspelled.
+  throw new Error(`Invalid ${HOSTED_ENV_FLAG} value: expected true/false or 1/0`);
 }
 
 const nameProperty = {
@@ -276,6 +281,16 @@ export async function dispatchTool(options: {
     const output = await options.run(prepared.call);
     return textResult(renderSuccess(prepared, output), false);
   } catch (error) {
+    if (prepared.tool === 'create_nextjs_app' && options.config.mode === 'hosted') {
+      // Workspaces are owned by one request; failed generations must not
+      // exhaust disk space or leak partially created project contents.
+      // Successful workspaces are kept for the delivery layer to package.
+      try {
+        await fs.rm(prepared.workingDirectory, { recursive: true, force: true });
+      } catch (cleanupError) {
+        console.error('Failed to remove hosted workspace after error:', cleanupError);
+      }
+    }
     return textResult(renderFailure(prepared, error), true);
   }
 }
@@ -311,7 +326,9 @@ function prepareCreate(raw: unknown, config: ServerConfig): Prepared {
       template: parsed.data.template,
       verbose: parsed.data.verbose,
     };
-    const cwd = containedDirectory(config.outputRoot, input.name);
+    // Use a different workspace for every request, even when app names repeat.
+    // A shared cwd could cause name collisions or cross-request output reuse.
+    const cwd = containedDirectory(config.outputRoot, randomUUID());
     if (!cwd) {
       return { ok: false, message: 'Project path is outside the hosted output directory' };
     }
@@ -414,7 +431,7 @@ function containedDirectory(outputRoot: string, name: string): string | undefine
   ) {
     return undefined;
   }
-  return root;
+  return project;
 }
 
 async function ensureWritable(

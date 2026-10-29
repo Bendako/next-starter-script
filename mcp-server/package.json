@@ -14,6 +14,8 @@
     "clean": "rm -rf dist",
     "prepublish": "npm run build",
     "test": "tsc -p tsconfig.test.json && tsx --test src/*.test.ts",
+    "test:protocol:ci": "npm run build && MCP_CHECK=ci tsx --test src/protocol.e2e.ts",
+    "test:protocol:qa": "npm run build && MCP_CHECK=qa tsx --test src/protocol.e2e.ts",
     "lint": "npx eslint src/",
     "watch": "tsc --watch"
   },
