@@ -79,56 +79,56 @@ async function scenario() {
     `./convex/${name}.ts`, () => import(pathToFileURL(path.join(directory, `convex/${name}.ts`)).href),
   ]));
   const t = convexTest(schema, modules);
-  const alice = t.withIdentity({ subject: 'user_alice' });
-  const bob = t.withIdentity({ subject: 'user_bob' });
-  const aliceId = await alice.mutation(anyApi.users.createUser, { clerkId: 'user_alice', name: 'Alice', email: 'alice@example.invalid' });
-  const bobId = await bob.mutation(anyApi.users.createUser, { clerkId: 'user_bob', name: 'Bob', email: 'bob@example.invalid' });
-  return { t, alice, bob, aliceId, bobId };
+  const owner = t.withIdentity({ subject: 'user_owner' });
+  const other = t.withIdentity({ subject: 'user_other' });
+  const ownerId = await owner.mutation(anyApi.users.createUser, { clerkId: 'user_owner', name: 'Owner', email: 'owner@example.invalid' });
+  const otherId = await other.mutation(anyApi.users.createUser, { clerkId: 'user_other', name: 'Other', email: 'other@example.invalid' });
+  return { t, owner, other, ownerId, otherId };
 }
 
 describe('generated Convex permissions', () => {
   test('anonymous callers cannot create or overwrite profiles', async () => {
-    const { t, alice, aliceId } = await scenario();
-    await assert.rejects(t.mutation(anyApi.users.createUser, { clerkId: 'user_alice', name: 'Attacker', email: 'bad@example.invalid' }), /Authentication required/);
-    await assert.rejects(t.mutation(anyApi.posts.createPost, { authorId: aliceId, title: 'bad', content: 'bad' }), /Authentication required/);
-    assert.equal((await alice.query(anyApi.users.getUserByClerkId, { clerkId: 'user_alice' })).name, 'Alice');
+    const { t, owner, ownerId } = await scenario();
+    await assert.rejects(t.mutation(anyApi.users.createUser, { clerkId: 'user_owner', name: 'Unauthorized', email: 'bad@example.invalid' }), /Authentication required/);
+    await assert.rejects(t.mutation(anyApi.posts.createPost, { authorId: ownerId, title: 'bad', content: 'bad' }), /Authentication required/);
+    assert.equal((await owner.query(anyApi.users.getUserByClerkId, { clerkId: 'user_owner' })).name, 'Owner');
   });
 
   test('a signed-in caller cannot impersonate a different profile or author', async () => {
-    const { alice, bob, aliceId } = await scenario();
-    await assert.rejects(bob.mutation(anyApi.users.createUser, { clerkId: 'user_alice', name: 'Attacker', email: 'bad@example.invalid' }), /Not authorized/);
-    await assert.rejects(bob.mutation(anyApi.posts.createPost, { authorId: aliceId, title: 'bad', content: 'bad' }), /Not authorized/);
-    assert.equal((await alice.query(anyApi.users.getUserByClerkId, { clerkId: 'user_alice' })).name, 'Alice');
-    assert.deepEqual(await alice.query(anyApi.posts.getPostsByAuthor, { authorId: aliceId }), []);
+    const { owner, other, ownerId } = await scenario();
+    await assert.rejects(other.mutation(anyApi.users.createUser, { clerkId: 'user_owner', name: 'Unauthorized', email: 'bad@example.invalid' }), /Not authorized/);
+    await assert.rejects(other.mutation(anyApi.posts.createPost, { authorId: ownerId, title: 'bad', content: 'bad' }), /Not authorized/);
+    assert.equal((await owner.query(anyApi.users.getUserByClerkId, { clerkId: 'user_owner' })).name, 'Owner');
+    assert.deepEqual(await owner.query(anyApi.posts.getPostsByAuthor, { authorId: ownerId }), []);
   });
 
   test('private profile reads require the matching authenticated subject', async () => {
-    const { t, alice, bob } = await scenario();
-    await assert.rejects(t.query(anyApi.users.getUserByClerkId, { clerkId: 'user_alice' }), /Authentication required/);
-    assert.equal(await bob.query(anyApi.users.getUserByClerkId, { clerkId: 'user_alice' }), null);
-    const own = await alice.query(anyApi.users.getUserByClerkId, { clerkId: 'user_alice' });
-    assert.equal(own.email, 'alice@example.invalid');
-    assert.equal(own.clerkId, 'user_alice');
+    const { t, owner, other } = await scenario();
+    await assert.rejects(t.query(anyApi.users.getUserByClerkId, { clerkId: 'user_owner' }), /Authentication required/);
+    assert.equal(await other.query(anyApi.users.getUserByClerkId, { clerkId: 'user_owner' }), null);
+    const own = await owner.query(anyApi.users.getUserByClerkId, { clerkId: 'user_owner' });
+    assert.equal(own.email, 'owner@example.invalid');
+    assert.equal(own.clerkId, 'user_owner');
   });
 
   test('owner can update their profile and create drafts; draft defaults stay private', async () => {
-    const { t, alice, bob, aliceId } = await scenario();
-    const updated = await alice.mutation(anyApi.users.createUser, { clerkId: 'user_alice', name: 'Alice updated', email: 'new@example.invalid' });
-    assert.equal(updated, aliceId);
-    const draftId = await alice.mutation(anyApi.posts.createPost, { authorId: aliceId, title: 'draft', content: 'private' });
+    const { t, owner, other, ownerId } = await scenario();
+    const updated = await owner.mutation(anyApi.users.createUser, { clerkId: 'user_owner', name: 'Owner updated', email: 'new@example.invalid' });
+    assert.equal(updated, ownerId);
+    const draftId = await owner.mutation(anyApi.posts.createPost, { authorId: ownerId, title: 'draft', content: 'private' });
     assert.equal(await t.query(anyApi.posts.getPostWithAuthor, { postId: draftId }), null);
-    assert.equal(await bob.query(anyApi.posts.getPostWithAuthor, { postId: draftId }), null);
-    assert.equal((await alice.query(anyApi.posts.getPostWithAuthor, { postId: draftId })).content, 'private');
-    assert.deepEqual(await t.query(anyApi.posts.getPostsByAuthor, { authorId: aliceId }), []);
-    assert.deepEqual(await bob.query(anyApi.posts.getPostsByAuthor, { authorId: aliceId }), []);
-    assert.equal((await alice.query(anyApi.posts.getPostsByAuthor, { authorId: aliceId })).length, 1);
+    assert.equal(await other.query(anyApi.posts.getPostWithAuthor, { postId: draftId }), null);
+    assert.equal((await owner.query(anyApi.posts.getPostWithAuthor, { postId: draftId })).content, 'private');
+    assert.deepEqual(await t.query(anyApi.posts.getPostsByAuthor, { authorId: ownerId }), []);
+    assert.deepEqual(await other.query(anyApi.posts.getPostsByAuthor, { authorId: ownerId }), []);
+    assert.equal((await owner.query(anyApi.posts.getPostsByAuthor, { authorId: ownerId })).length, 1);
   });
 
   test('public reads expose published posts and public profile fields only', async () => {
-    const { t, alice, bob, aliceId } = await scenario();
-    const postId = await alice.mutation(anyApi.posts.createPost, { authorId: aliceId, title: 'public', content: 'hello', published: true });
-    await alice.mutation(anyApi.posts.createPost, { authorId: aliceId, title: 'draft', content: 'secret' });
-    for (const caller of [t, bob, alice]) {
+    const { t, owner, other, ownerId } = await scenario();
+    const postId = await owner.mutation(anyApi.posts.createPost, { authorId: ownerId, title: 'public', content: 'hello', published: true });
+    await owner.mutation(anyApi.posts.createPost, { authorId: ownerId, title: 'draft', content: 'secret' });
+    for (const caller of [t, other, owner]) {
       const post = await caller.query(anyApi.posts.getPostWithAuthor, { postId });
       assert.deepEqual(Object.keys(post.author).sort(), ['_id', 'name']);
       assert.equal(post.content, 'hello');
@@ -136,18 +136,63 @@ describe('generated Convex permissions', () => {
     const profiles = await t.query(anyApi.users.getUsers, {});
     for (const profile of profiles) assert.deepEqual(Object.keys(profile).sort(), ['_id', 'name']);
     assert.equal((await t.query(anyApi.posts.getPublishedPosts, {})).length, 1);
-    assert.equal((await bob.query(anyApi.posts.getPostsByAuthor, { authorId: aliceId })).length, 1);
+    assert.equal((await other.query(anyApi.posts.getPostsByAuthor, { authorId: ownerId })).length, 1);
   });
 
   test('authenticated users without a profile cannot claim an existing author', async () => {
-    const { t, aliceId } = await scenario();
+    const { t, ownerId } = await scenario();
     const stranger = t.withIdentity({ subject: 'user_no_profile' });
-    await assert.rejects(stranger.mutation(anyApi.posts.createPost, { authorId: aliceId, title: 'bad', content: 'bad' }), /Not authorized/);
+    await assert.rejects(stranger.mutation(anyApi.posts.createPost, { authorId: ownerId, title: 'bad', content: 'bad' }), /Not authorized/);
+  });
+
+  test('denied profile creation leaves no new profile or post behind', async () => {
+    const { t, owner, ownerId } = await scenario();
+    const profile = { clerkId: 'user_unclaimed', name: 'Unclaimed', email: 'unclaimed@example.invalid' };
+    await assert.rejects(t.mutation(anyApi.users.createUser, profile), /Authentication required/);
+    await assert.rejects(owner.mutation(anyApi.users.createUser, profile), /Not authorized/);
+    assert.equal(await t.withIdentity({ subject: profile.clerkId }).query(anyApi.users.getUserByClerkId, { clerkId: profile.clerkId }), null);
+    assert.deepEqual(await t.query(anyApi.posts.getPublishedPosts, {}), []);
+    assert.deepEqual(await owner.query(anyApi.posts.getPostsByAuthor, { authorId: ownerId }), []);
+  });
+
+  test('ownership is enforced in both directions, including explicit drafts and deleted profiles', async () => {
+    const { t, owner, other, ownerId, otherId } = await scenario();
+    for (const [writer, outsider, authorId] of [[owner, other, ownerId], [other, owner, otherId]] as const) {
+      const postId = await writer.mutation(anyApi.posts.createPost, { authorId, title: 'private', content: 'private', published: false });
+      await assert.rejects(outsider.mutation(anyApi.posts.createPost, { authorId, title: 'forged', content: 'forged', published: true }), /Not authorized/);
+      for (const caller of [t, outsider]) {
+        assert.equal(await caller.query(anyApi.posts.getPostWithAuthor, { postId }), null);
+        assert.deepEqual(await caller.query(anyApi.posts.getPostsByAuthor, { authorId }), []);
+        assert.deepEqual(await caller.query(anyApi.posts.getPublishedPosts, {}), []);
+      }
+      assert.equal((await writer.query(anyApi.posts.getPostWithAuthor, { postId })).content, 'private');
+      await t.run(async (ctx) => { await ctx.db.delete(authorId); });
+      assert.equal(await writer.query(anyApi.posts.getPostWithAuthor, { postId }), null);
+      assert.deepEqual(await writer.query(anyApi.posts.getPostsByAuthor, { authorId }), []);
+      await assert.rejects(writer.mutation(anyApi.posts.createPost, { authorId, title: 'orphan', content: '' }), /Not authorized/);
+    }
+  });
+
+  test('public projections preserve imageUrl but deny private fields for every viewer', async () => {
+    const { t, owner, other, ownerId } = await scenario();
+    await owner.mutation(anyApi.users.createUser, { clerkId: 'user_owner', name: 'Owner', email: 'private@example.invalid', imageUrl: 'https://example.invalid/avatar.png' });
+    const postId = await owner.mutation(anyApi.posts.createPost, { authorId: ownerId, title: 'public', content: '', published: true });
+    for (const caller of [t, owner, other]) {
+      const profiles = await caller.query(anyApi.users.getUsers, {});
+      const profile = profiles.find((entry: { _id: string }) => entry._id === ownerId);
+      const post = await caller.query(anyApi.posts.getPostWithAuthor, { postId });
+      for (const value of [profile, post.author]) {
+        assert.deepEqual(Object.keys(value).sort(), ['_id', 'imageUrl', 'name']);
+        assert.equal(value.imageUrl, 'https://example.invalid/avatar.png');
+      }
+    }
+    await t.run(async (ctx) => { await ctx.db.delete(ownerId); });
+    assert.equal((await t.query(anyApi.posts.getPostWithAuthor, { postId })).author, null);
   });
 
   test('a deleted or unknown post returns null', async () => {
-    const { t, alice, aliceId } = await scenario();
-    const postId = await alice.mutation(anyApi.posts.createPost, { authorId: aliceId, title: 'deleted', content: '' });
+    const { t, owner, ownerId } = await scenario();
+    const postId = await owner.mutation(anyApi.posts.createPost, { authorId: ownerId, title: 'deleted', content: '' });
     await t.run(async (ctx) => { await ctx.db.delete(postId); });
     assert.equal(await t.query(anyApi.posts.getPostWithAuthor, { postId }), null);
   });
