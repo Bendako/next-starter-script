@@ -1,0 +1,44 @@
+name: Factory Watchdog
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 7 * * *'
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  checks: read
+  statuses: read
+  actions: read
+concurrency:
+  group: factory-watchdog
+  cancel-in-progress: false
+jobs:
+  health:
+    if: github.repository == 'Bendako/next-starter-script'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mcp-server/package-lock.json
+      - run: npm install --global npm@10
+      - run: npm ci
+        working-directory: mcp-server
+      - run: npx tsx src/factory-watchdog-run.ts
+        working-directory: mcp-server
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FACTORY_REVIEWER_LOGIN: ${{ vars.FACTORY_REVIEWER_LOGIN }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: factory-health
+          path: mcp-server/watchdog-output/
+          if-no-files-found: warn
+          retention-days: 7
