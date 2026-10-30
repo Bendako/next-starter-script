@@ -10,8 +10,10 @@ are recorded below and do not authorize exceptions.
 - The product bot writes GitHub issues with scope and acceptance criteria.
 - Codex is the coding agent and writes code. Each task uses its own git worktree
   and branch, stays scoped, and opens a draft PR linked to the issue.
-- The independent reviewer bot reviews every PR. Reviewer findings automatically
-  return to the coding agent for fixes and re-review, for at most three fix/review
+- The independent reviewer bot reviews every PR before it can be merged; drafts
+  are reviewed on request and may lack a review (the Watchdog reports a missing
+  review on a draft as N/A). A PR must be non-draft before merge. Reviewer
+  findings automatically return to the coding agent for fixes and re-review, for at most three fix/review
   rounds. Unresolved findings after round three escalate to the human owner;
   automation stops pending a decision.
 - The human owner approves the specific PR and exact current head SHA after
@@ -34,6 +36,14 @@ Require `ci/mcp` and `qa/mcp` on `main`, plus all other applicable required chec
 files alone do not configure protection. Checks and completed Codex and independent
 reviewer reviews must match the exact current head. Missing, skipped, cancelled,
 stale or unconfigured required checks do not pass.
+
+For the independent reviewer, the latest timestamped verdict on the same head
+wins, including COMMENT-only re-reviews: `changes needed` then `ready` is PASS;
+the reverse is FAIL, regardless of array order. Formal approvals count; a
+dismissal alone is UNVERIFIED. Empty, null or whitespace-only COMMENT bodies carry
+no verdict and are ignored, preserving any earlier same-head verdict. A latest
+non-empty comment without a recognized verdict is UNVERIFIED, even after a
+blocker. Tied latest timestamps or invalid current-head evidence are UNVERIFIED.
 
 Inspect every open review thread. Unresolved P0/P1, security or correctness
 findings block merge; document disposition, risk and follow-up for other findings.
@@ -58,6 +68,17 @@ Author commits as `Factory Watchdog Bot <factory-watchdog@users.noreply.github.c
 Never put the owner's personal name or email in commits, trailers, PR titles or
 bodies. Use clean squash messages without any `Co-authored-by` trailer naming
 the owner. Follow the conventional commit prefixes in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Sensitive PRs always require explicit owner approval for the specific PR and
+exact current head SHA. Categories from `AGENTS.md:26`: installer/network and
+credentials, subprocess lifecycle, auth, billing, sandbox, security controls,
+CI permissions, and edits to merge policy. Categories from
+`docs/MERGE_POLICY.md:9`: authentication, authorization, OAuth, token validation,
+secrets, payments and entitlements, filesystem/sandbox isolation, command
+invocation and process lifetime, input-trust boundaries, user data/privacy,
+security controls, destructive changes, supply chain/build/install behavior,
+externally exposed endpoints, CI permissions, policy/rulesets, migrations, and
+production infrastructure. When in doubt, classify as sensitive.
 
 Merges, deploys, secrets/keys, paid plans, permission changes and branch-protection
 changes always require explicit owner approval. Standing or delegated authority
@@ -89,6 +110,8 @@ Explicit owner approval for every merge and mandatory squash merge take preceden
   owner's standing authorization” conflicts with per-merge approval.
 - `docs/MERGE_POLICY.md:7`: “**Routine change (eligible for delegated merge):**”
   conflicts with per-merge approval.
+- `docs/MERGE_POLICY.md:19` has a Codex-only review gate; this document requires
+  Codex review plus the independent reviewer bot (stricter, not contradictory).
 - `docs/MERGE_POLICY.md:25`: “Delegated auto-merge may occur **only for routine
   changes** that satisfy every gate” conflicts with per-merge approval.
 - `docs/MERGE_POLICY.md:41`: “human approval is not required if all gates pass.”
