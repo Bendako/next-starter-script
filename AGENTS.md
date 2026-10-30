@@ -1,3 +1,5 @@
+See [FACTORY.md](FACTORY.md) for the authoritative software factory rules.
+
 # Repository guidance for coding agents and code review
 
 This repository has distinct products: the Bash generator and local stdio MCP server; a **work-in-progress** hosted HTTP MCP service; and a **legacy, insecure-by-default** web-app prototype. Do not assume that a local CI success proves the hosted SaaS can be deployed.
