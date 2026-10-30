@@ -180,7 +180,7 @@ Check our [Issues](https://github.com/yourusername/next-starter/issues) for:
 - Maintainers will review within 48 hours
 - Address feedback promptly
 - Ensure CI passes
-- Squash commits if requested
+- Squash merge is the standard; see [FACTORY.md](FACTORY.md).
 
 ## 🏗️ Project Architecture
 
