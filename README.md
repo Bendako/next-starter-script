@@ -22,7 +22,7 @@ This purchase covers the local kit. The repository also contains a work-in-progr
 ## Requirements
 
 - Bash on macOS/Linux, or a Bash environment such as WSL on Windows.
-- Node.js 20.9+ for generated apps, plus npm and npx. The script checks for 18+, but `create-next-app` 16 requires 20.9+.
+- Node.js 20.9+ for generated apps, plus npm and npx. The script rejects older versions because `create-next-app` 16 requires 20.9+.
 - For `mcp-server/`, Node.js 22+ is recommended, using a version that satisfies its dependency engines. `validate-npm-package-name@8` declares Node `^22.22.2 || ^24.15.0 || >=26`; it prints an `EBADENGINE` warning on Node 20, although tests still pass on Node 20.
 - Internet access to download npm packages and a writable project directory.
 - For MCP use, a client that can launch local stdio servers.
@@ -81,7 +81,7 @@ Verified on 2026-10-30 on Linux with Node.js 20.19.2, npm 11.21.1, and Bash 5.2.
 | `--test` | Runs script self-tests; this does not establish that a generated app builds. |
 | `--help` | Shows the script's complete option list. |
 
-Running the script with only an app name currently prints the menu text without prompting, automatically selects option 1 (Default, Clerk and Convex skipped), and generates the app. Flag-based `--template default` without skip flags includes Clerk and Convex. Use `--` before the app name in flag-based commands, as shown above. Direct generation creates the app beneath the shell's current directory.
+Running the script with only an app name currently prints the menu text without prompting, automatically selects option 1 (Default, Clerk and Convex skipped), and generates the app. Without a TTY on stdin it also prints a notice naming that default. Flag-based `--template default` without skip flags includes Clerk and Convex. Use `--` before the app name in flag-based commands, as shown above. Direct generation creates the app beneath the shell's current directory.
 
 App names must start with a lowercase letter or number, contain only lowercase letters, numbers, and hyphens, and be 1–214 characters long.
 
@@ -105,7 +105,7 @@ The server validates tool arguments and launches Bash with an argument array and
 
 ## Troubleshooting
 
-- **`npm ci` in `mcp-server/` fails with `Missing: @esbuild/... from lock file`:** `package-lock.json` lacks platform entries that npm 11 requires (npm 10 accepts it). Use `npm install` instead.
+- **`npm ci` in `mcp-server/` fails with `Missing: @esbuild/... from lock file`:** older checkouts had a `package-lock.json` without the esbuild platform entries that npm 11 requires (npm 10 accepted it). The lockfile now includes them, so `npm ci` works on npm 10 and 11; update your checkout if you still see this.
 - **`EBADENGINE` warning on Node 20:** `validate-npm-package-name@8` declares Node `^22.22.2 || ^24.15.0 || >=26`. Tests still pass on Node 20; Node.js 22+ is recommended for `mcp-server/`, with a version satisfying that engine range.
 - **Node or package errors:** check `node --version`, `npm --version`, and the requirements of the downloaded Next.js tooling. Inspect terminal output and `setup.log` where available; some dependency-install failures allow the script to continue.
 - **Registry connection fails:** check your npm registry, proxy, and network configuration. The direct script resolves the configured npm registry; the MCP child process sets its registry to `https://registry.npmjs.org/`.
