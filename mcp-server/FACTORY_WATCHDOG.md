@@ -1,34 +1,83 @@
-# Factory Watchdog: offline evaluator (PR 1)
+# Factory Watchdog pilot (PR 2)
 
-Issue #32's first slice exports `evaluate(snapshot, policy)` and fact/report types
-from `src/factory-watchdog.ts`. Run fixtures with `npm test` in `mcp-server`.
-There is no I/O, clock access, GitHub client, workflow, or runtime registration.
+For #32, `factory-watchdog.ts` retains the offline evaluator from PR #45.
+`factory-watchdog-github.ts` adds a validated, paginated REST collector and report.
+`factory-watchdog-run.ts` writes `watchdog-output/health.json`, `health.md`, and
+the Actions summary. A factual FAIL fails the job; collection gaps are explicitly
+UNVERIFIED. Stage PASS never asserts overall readiness or a verified full loop.
 
-The caller supplies complete observations and `fetchedAt`. Omitted checks or
-reviews mean unreadable; empty arrays mean successfully read with no results.
-Evidence needs a source URL and timestamp. A future collector must authenticate
-review identities before assigning `reviewer` or `codex`. Ordinary comments are
-not review evidence. A commented review is unverified unless a trusted collector supplies an explicit
-`verdict` (`approved` or `changes_needed`). Blocking feedback persists until a
-later formal approval or dismissal; a comment cannot clear it. Stage
-PASS never asserts overall readiness or genuine protocol E2E.
+## Execution
 
-Only current-head checks/reviews count. Latest timestamped checks win. Tied latest timestamps are unverified, independent
-of input order. Any invalid current-head fact makes its stage unverified instead
-of being silently dropped. Stage output includes only declared report fields.
-Cancelled/superseded checks are stale; skipped checks are unverified. Pending
-checks become stale after the CI grace measured from the check's own time. Missing checks fail after 10 minutes,
-including stacked-base PRs. MCP applicability is explicit rollout policy.
-Missing non-draft reviews fail 30 minutes after the later of readiness and push;
-unknown timing/access is unverified. Drafts without reviews are N/A. More than
-three Codex events on one head is a review storm. Thresholds are configurable.
+The workflow supports manual dispatch and one daily run on standard runners,
+restricted to `Bendako/next-starter-script`. Permissions are read-only and checkout
+credentials are not persisted. The existing ephemeral `GITHUB_TOKEN` is used;
+there are no new secrets or paid services. Set the non-secret repository variable
+`FACTORY_REVIEWER_LOGIN` to the authenticated independent-review account. Missing
+configuration leaves that stage UNVERIFIED. Never infer identity from PR authors
+or from text mentioning a reviewer.
 
-Issue stages record timestamped acknowledgment and engineer responses; missing
-evidence is unverified. Response deadlines are not inferred in this slice.
-Ruleset facts must represent enforced requirements on the target branch, not
-merely configured settings. Missing access, evidence, or required-check data is
-unverified; readable evidence missing either MCP requirement fails.
+Run `npm ci`, `npm run lint`, `npm test`, and `npm run build` in both `mcp-server`
+and `hosted` with npm 10.9.8. To collect locally from `mcp-server`, supply an existing
+read-only token through the environment, set `GITHUB_REPOSITORY` to the pilot,
+and run `npx tsx src/factory-watchdog-run.ts`. Never put tokens in commands,
+reports, fixtures, or committed files. Only GET requests to fixed pilot REST paths
+are made, with timeouts and redirects rejected. Partial pages and malformed or
+denied reads cannot masquerade as empty results. Artifacts contain normalized
+facts, not tokens, review prose or raw job logs; retention is seven days.
 
-PR 2 adds fact collection, read-only workflow, summary and artifact. Separately
-approved work adds comment reporting, command handling, deduplicated repair
-loops and an isolated canary. These fixtures do not verify the full factory.
+A newly added workflow may not support dispatch until GitHub knows it on the
+default branch. Local fixtures do not prove a hosted dispatch. Do not merge this
+draft just to enable dispatch.
+
+## Verdict rule and evidence
+
+The latest timestamped independent-reviewer verdict on the same head wins,
+including COMMENT-only re-reviews: `changes needed` then `ready` is PASS; the
+reverse is FAIL. Array order has no effect. Formal approvals also count, while
+a dismissal alone is UNVERIFIED. Codex remains separate, retaining PR 1's formal
+resolution rule for blockers and three-events-per-head storm cap. Empty-body
+independent-reviewer COMMENT records (including null or whitespace-only bodies) carry no verdict and are ignored, preserving any earlier same-head verdict.
+Any latest nonempty comment without a recognized verdict is UNVERIFIED, including
+after a blocker.
+Tied latest timestamps and invalid current-head evidence are UNVERIFIED.
+
+The parser requires exactly one standalone `Verdict: ready` or
+`Verdict: changes needed` line, ignoring case and surrounding whitespace. Missing
+prefixes, unknown values, multiple verdict lines, quoted lines and extra prose
+on the verdict line are rejected. Prose on other lines is allowed. Only GitHub
+review records from the configured identity or exact Codex bot are mapped.
+Ordinary issue comments cannot prove review or head SHA. Unknown review states
+and unparseable explicit verdicts cannot PASS even on an otherwise approved
+record. Missing, blank or non-string evidence URLs count as no evidence and do
+not crash the evaluator.
+
+Only current-head checks/reviews count. The head is confirmed again after
+collection; changed/unreadable heads discard observed successes. Check runs and
+commit statuses are separate observations. Cancelled checks are STALE;
+skipped/unknown checks are UNVERIFIED. Pending age uses the check timestamp.
+Plain CI green never proves review or genuine protocol E2E.
+
+Open handoff/grokbot issues use timestamped acceptance label events and the
+latest comment from a currently assigned engineer. Time-to-acknowledge is
+reported when both times are known; no assignee leaves response UNVERIFIED.
+Response deadlines are not invented. Workflow runs have separate status,
+conclusion, URL and SHA observations. Failed-check links lead to diagnostics;
+raw job logs are not copied because they may contain sensitive data.
+
+Effective required checks are read from `/rules/branches/main`; denied access
+is UNVERIFIED. This reports main's enforced check requirements, not complete
+merge eligibility or protection on every stacked branch. REST commit dates and
+PR update times do not prove head push time. That time remains unknown with an
+explicit collection gap: observed current-head checks can be evaluated, but
+missing-check/review deadlines needing that time remain UNVERIFIED.
+Ready-for-review events come from the timeline.
+
+## Limits and follow-up
+
+Fixtures cover parsing, comment-only reversals, wrong heads/identities, malformed
+and denied reads, pagination, head changes, failed reports, missing evidence,
+unknown verdicts and PR 1 scenarios. Real dispatch and canary evidence remain
+separate from fixtures. Comment reporting, commands, deduplicated three-attempt
+repair loops, canary creation and rollout beyond the pilot require separately
+approved work. This workflow never merges, deploys, posts comments or changes
+settings. It adds no second hourly poller.

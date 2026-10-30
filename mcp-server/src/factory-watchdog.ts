@@ -1,7 +1,7 @@
 /** Offline facts only: collectors must supply complete, trusted observations. */
 export type StageStatus = 'PASS' | 'FAIL' | 'STALE' | 'UNVERIFIED' | 'NOT_APPLICABLE';
-export type StageName = 'acknowledgment' | 'engineer-response' | 'ci/mcp' | 'qa/mcp' | 'reviewer' | 'codex' | 'merge-gate';
-export interface Evidence { evidenceUrl: string; at: string }
+export type StageName = 'collection' | 'acknowledgment' | 'engineer-response' | 'ci/mcp' | 'qa/mcp' | 'reviewer' | 'codex' | 'merge-gate';
+export interface Evidence { evidenceUrl?: string; at: string }
 export interface IssueFacts {
   url: string;
   acknowledged?: Evidence;
@@ -62,7 +62,7 @@ export function evaluate(snapshot: Snapshot, policy: Readonly<Policy> = defaultP
     const time = Date.parse(at);
     return Number.isFinite(time) && time <= now ? (now - time) / 60000 : undefined;
   };
-  const valid = (e: Evidence) => Boolean(e.evidenceUrl.trim()) && age(e.at) !== undefined;
+  const valid = (e: Evidence) => (typeof e.evidenceUrl === 'string' && Boolean(e.evidenceUrl.trim())) && age(e.at) !== undefined;
   // Ambiguous timestamps cannot establish a unique latest result.
   const latest = <T extends Evidence>(facts: T[]): T | undefined => {
     const readable = facts.filter(valid);
@@ -75,6 +75,14 @@ export function evaluate(snapshot: Snapshot, policy: Readonly<Policy> = defaultP
     if (reviews.some(r => !valid(r))) return 'UNVERIFIED';
     const review = latest(reviews);
     if (!review) return 'UNVERIFIED';
+    if (review.verdict !== undefined && !['approved', 'changes_needed'].includes(review.verdict)) return 'UNVERIFIED';
+    if (review.result === 'commented' && review.verdict === undefined) return 'UNVERIFIED';
+    // Independent re-reviews may only be COMMENTs (including own-account PRs).
+    if (review.kind === 'reviewer' && review.result !== 'dismissed' && review.verdict !== undefined) {
+      if (review.verdict === 'approved') return 'PASS';
+      if (review.verdict === 'changes_needed') return 'FAIL';
+      return 'UNVERIFIED';
+    }
     // Only a later formal approval or dismissal clears blocking feedback.
     const blockers = reviews.filter(r => r.result === 'changes_requested'
       || (r.result === 'commented' && r.verdict === 'changes_needed'));
@@ -102,7 +110,7 @@ export function evaluate(snapshot: Snapshot, policy: Readonly<Policy> = defaultP
     const headAge = age(pr.head.pushedAt);
     for (const name of ['ci/mcp', 'qa/mcp'] as const) {
       if (!pr.mcpApplicable) { add(name, 'NOT_APPLICABLE', 'engineer'); continue; }
-      if (!pr.checks || headAge === undefined) { add(name, 'UNVERIFIED', 'engineer', 'Collect current-head checks and push time.'); continue; }
+      if (!pr.checks) { add(name, 'UNVERIFIED', 'engineer', 'Collect current-head checks and push time.'); continue; }
       const matching = pr.checks.filter(c => c.name === name);
       const currentFacts = matching.filter(c => c.head_sha === pr.head.sha);
       if (currentFacts.some(c => !valid(c)) || (currentFacts.length > 0 && !latest(currentFacts))) {
@@ -112,7 +120,7 @@ export function evaluate(snapshot: Snapshot, policy: Readonly<Policy> = defaultP
       const current = latest(currentFacts);
       if (!current) {
         const old = latest(matching.filter(c => c.head_sha !== pr.head.sha));
-        add(name, old ? 'STALE' : headAge > policy.ciGraceMinutes ? 'FAIL' : 'UNVERIFIED', 'engineer',
+        add(name, old ? 'STALE' : headAge !== undefined && headAge > policy.ciGraceMinutes ? 'FAIL' : 'UNVERIFIED', 'engineer',
           'Trigger and inspect CI on the current head, including stacked-base triggers.', old ? { ...old, sha: old.head_sha } : undefined);
       } else {
         const status: StageStatus = current.result === 'success' ? 'PASS' : current.result === 'failure' ? 'FAIL'
