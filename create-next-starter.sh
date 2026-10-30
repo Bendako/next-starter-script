@@ -47,7 +47,7 @@
 #   ./create-next-starter.sh --skip-clerk my-app               # Default + Database
 #
 # REQUIREMENTS:
-#   • Node.js 18+ (https://nodejs.org/)
+#   • Node.js 20.9+ (https://nodejs.org/)
 #   • npm (comes with Node.js)
 #   • Internet connection
 #   • At least 1GB free disk space
@@ -80,7 +80,7 @@ VERBOSE=false
 DRY_RUN=false
 FORCE=false
 TEMPLATE="default"
-NODE_VERSION_MIN=18
+NODE_VERSION_MIN="20.9"
 SCRIPT_VERSION="2.5"
 
 # Global variables for cleanup
@@ -246,7 +246,7 @@ COMMAND-LINE OPTIONS:
   --dry-run            Show what would be done without executing
   --force              Overwrite existing directory if it exists
   --template TYPE      Use specific template (default, minimal, full)
-  --node-version MIN   Minimum Node.js version required (default: 18)
+  --node-version MIN   Minimum Node.js version required (default: 20.9)
   --test               Run script self-test and exit
   --help, -h           Show this help message
   --version, -v        Show script version
@@ -267,6 +267,11 @@ EXAMPLES:
   $0 my-app                            # Full stack (with auth and database)
   $0 --verbose my-app                  # With detailed output
   $0 --dry-run my-app                  # Preview what would be created
+
+NON-INTERACTIVE:
+  With only an app name and no stdin TTY, the menu uses option 1: Default
+  (no Clerk, no Convex), standard output, execute. Pass --skip-clerk,
+  --skip-convex, or --template flags to choose another configuration.
 
 REQUIREMENTS:
   • Node.js ${NODE_VERSION_MIN}+ (https://nodejs.org/)
@@ -332,6 +337,9 @@ show_selection_menu() {
 
 # STEP 9.1: Interactive option selection with arrow key navigation
 show_interactive_menu() {
+  if [ ! -t 0 ]; then
+    print_status "$YELLOW" "Non-interactive session (no TTY) detected: using the default configuration (option 1: Default - no Clerk, no Convex; standard output; execute). Pass --skip-clerk/--skip-convex/--template flags to choose another configuration."
+  fi
   print_status "$CYAN" "🎛️  Let's configure your Next.js project!"
   print_status "$BLUE" ""
   
@@ -577,6 +585,10 @@ parse_arguments() {
         ;;
       --node-version)
         if [ -n "${2:-}" ]; then
+          if [[ ! "$2" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            log_error "Invalid --node-version: '$2'. Expected a major or major.minor version (e.g. 20 or 20.9)."
+            exit 1
+          fi
           NODE_VERSION_MIN="$2"
           log_info "Option: Minimum Node.js version set to $NODE_VERSION_MIN"
           shift 2
@@ -844,10 +856,14 @@ check_prerequisites() {
   else
     # Check Node version
     local node_version=$(node --version | cut -d 'v' -f 2)
-    local major_version=$(echo $node_version | cut -d '.' -f 1)
-    
-    if [ "$major_version" -lt "$NODE_VERSION_MIN" ]; then
-      missing+=("Node.js ${NODE_VERSION_MIN}+ (current: v$node_version)")
+    local major_version minor_version min_major min_minor
+    IFS=. read -r major_version minor_version _ <<< "$node_version"
+    IFS=. read -r min_major min_minor <<< "$NODE_VERSION_MIN"
+    min_minor=${min_minor:-0}
+
+    if (( 10#$major_version < 10#$min_major ||
+          (10#$major_version == 10#$min_major && 10#$minor_version < 10#$min_minor) )); then
+      missing+=("Node.js ${NODE_VERSION_MIN}+ required by create-next-app 16 / Next 16 (current: v$node_version)")
     else
       log_info "Node.js version: v$node_version ✓"
       if [ "$VERBOSE" = true ]; then

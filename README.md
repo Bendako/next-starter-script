@@ -165,7 +165,7 @@ my-app/
 ## Requirements 📋
 
 - **Bash** (macOS/Linux) or WSL (Windows)
-- **Node.js** 18+ and npm
+- **Node.js** 20.9+ and npm
 - **Git** for version control
 - **Internet connection** for package downloads
 
