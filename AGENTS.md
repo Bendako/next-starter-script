@@ -35,15 +35,18 @@ Payment webhooks must verify signatures, handle repeated/out-of-order events ide
 - **Tier 1 — auto-merge without asking:** docs-only, tests-only, typo/text fixes,
   and only a patch-level semver bump of an EXISTING dependency where only the
   manifest/lockfile version changes: no new package, no install-script change,
-  and no registry change. The release bot merges; the owner gets one line in the
-  daily summary.
+  and no registry change. Patch-level bumps of authentication, cryptography, or
+  Convex packages are excluded from this carve-out and are Tier 3. The release
+  bot merges; the owner gets one line in the daily summary.
 - **Tier 2 — auto-merge after notice:** regular features and bug fixes. Notify the
   owner; the release bot merges after 12 hours unless the owner says stop.
 - **Tier 1 and 2 preconditions:** the PR is non-draft; the independent reviewer
   bot's latest verdict on the exact current head is `ready`, interpreted using
   the verdict rules in FACTORY.md; all required checks, including `ci/mcp` and
   `qa/mcp`, are green; no sensitive category is touched; and squash merge is
-  locked to the reviewed head SHA. All other merge gates also apply.
+  locked to the reviewed head SHA. Codex review (`@codex review`) is optional
+  and advisory for Tier 1 and 2; only the reviewer (סוקר) `ready` verdict and
+  green checks are required review/check gates. All other merge gates also apply.
 - **Tier 3 — always explicit owner approval on the exact head SHA:** any sensitive
   category (auth, payments, secrets, CI permissions, installer/network, subprocess
   lifecycle, sandbox, security controls), production deploys, database
@@ -58,7 +61,9 @@ Payment webhooks must verify signatures, handle repeated/out-of-order events ide
   Policy-bearing files are Tier 3: AGENTS.md, FACTORY.md, docs/MERGE_POLICY.md,
   the merge section of CONTRIBUTING.md, and mcp-server/FACTORY_WATCHDOG.md.
   Every dependency or build change outside the Tier 1 dependency carve-out is
-  Tier 3, including any lockfile change beyond that carve-out.
+  Tier 3, including any lockfile change beyond that carve-out. Codex review
+  (`@codex review`) is a mandatory gate only for Tier 3 PRs and must match the
+  exact current head SHA when required or used as evidence.
 - Grok Bot proposes the tier and the reviewer (סוקר) confirms it; on disagreement,
   the higher tier wins.
 - Tier 3 criteria override Tier 1 and 2 descriptions, including docs-only changes.
