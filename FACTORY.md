@@ -2,8 +2,8 @@
 
 This is the single source of truth for factory operation in this repository. These
 rules govern the required process; they do not claim that automation is installed
-or that GitHub protection settings have been verified. Conflicting legacy clauses
-are recorded below and do not authorize exceptions.
+or that GitHub protection settings have been verified. AGENTS.md and
+docs/MERGE_POLICY.md defer to this document.
 
 ## Roles and flow
 
@@ -13,15 +13,42 @@ are recorded below and do not authorize exceptions.
 - The independent reviewer bot reviews every PR before it can be merged; drafts
   are reviewed on request and may lack a review (the Watchdog reports a missing
   review on a draft as N/A). A PR must be non-draft before merge. Reviewer
-  findings automatically return to the coding agent for fixes and re-review, for at most three fix/review
-  rounds. Unresolved findings after round three escalate to the human owner;
+  findings automatically return to the coding agent for fixes and re-review, for
+  at most three fix/review rounds. Unresolved findings after round three escalate to the human owner;
   automation stops pending a decision.
-- The human owner approves the specific PR and exact current head SHA after
-  review, evidence and findings disposition. A changed head or material scope
-  requires fresh checks, review and approval.
-- The release bot squash-merges only after explicit owner approval and all merge
-  gates pass; it deploys only after explicit owner approval of the deployment.
-  Mark the PR ready before merge. Never bypass branch protection.
+- The human owner approves Tier 3 PRs on the specific PR and exact current head
+  SHA after review, evidence and findings disposition, and may say stop on any
+  Tier 2 notice. A changed head or material scope requires fresh checks, review
+  and tier evaluation.
+- The release bot follows the three-tier merge policy below and always uses a
+  squash merge locked to the reviewed head SHA. Never bypass branch protection.
+  Deployments require explicit owner approval; production deploys are Tier 3.
+
+## Three-tier merge policy
+
+- **Tier 1 — auto-merge without asking:** docs-only, tests-only, typo/text fixes,
+  and patch-level dependency bumps. The release bot merges; the owner gets one
+  line in the daily summary.
+- **Tier 2 — auto-merge after notice:** regular features and bug fixes. Notify the
+  owner; the release bot merges after 12 hours unless the owner says stop.
+- **Tier 1 and 2 preconditions:** the PR is non-draft; the independent reviewer
+  bot's latest verdict on the exact current head is `ready`, interpreted using
+  the verdict rules in FACTORY.md; all required checks, including `ci/mcp` and
+  `qa/mcp`, are green; no sensitive category is touched; and squash merge is
+  locked to the reviewed head SHA. All other merge gates also apply.
+- **Tier 3 — always explicit owner approval on the exact head SHA:** any sensitive
+  category (auth, payments, secrets, CI permissions, installer/network, subprocess
+  lifecycle, sandbox, security controls, edits to merge policy or FACTORY.md
+  itself), production deploys, database schema/migration changes, and PRs over
+  400 changed lines. Sensitive categories also include authorization, OAuth,
+  token validation, credentials, billing/entitlements, filesystem isolation,
+  command invocation, input-trust boundaries, user data/privacy, destructive
+  changes, supply chain/build/install behavior, externally exposed endpoints,
+  policy/rulesets, and production infrastructure. Security hardening is sensitive.
+- Tier 3 criteria override Tier 1 and 2 descriptions, including docs-only changes.
+- When in doubt, move the PR up a tier. A new push after review resets the tier
+  evaluation, checks and review; renew Tier 2 notice and any required Tier 3
+  approval for the new head. Dependencies never authorize an indirect merge.
 
 ## Evidence and merge gates
 
@@ -33,8 +60,10 @@ screenshots for UI changes. Never describe unrun checks as passing.
 
 Require `ci/mcp` and `qa/mcp` on `main`, plus all other applicable required checks
 (including CI and CodeQL). Verify actual enforcement in GitHub separately; workflow
-files alone do not configure protection. Checks and completed Codex and independent
-reviewer reviews must match the exact current head. Missing, skipped, cancelled,
+files alone do not configure protection. Checks and required completed reviews
+must match the exact current head.
+The independent reviewer bot must return `ready` under the rules below; any
+Codex review used as evidence must also match that head. Missing, skipped, cancelled,
 stale or unconfigured required checks do not pass.
 
 For the independent reviewer, the latest timestamped verdict on the same head
@@ -69,22 +98,12 @@ Never put the owner's personal name or email in commits, trailers, PR titles or
 bodies. Use clean squash messages without any `Co-authored-by` trailer naming
 the owner. Follow the conventional commit prefixes in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Sensitive PRs always require explicit owner approval for the specific PR and
-exact current head SHA. Categories from `AGENTS.md:26`: installer/network and
-credentials, subprocess lifecycle, auth, billing, sandbox, security controls,
-CI permissions, and edits to merge policy. Categories from
-`docs/MERGE_POLICY.md:9`: authentication, authorization, OAuth, token validation,
-secrets, payments and entitlements, filesystem/sandbox isolation, command
-invocation and process lifetime, input-trust boundaries, user data/privacy,
-security controls, destructive changes, supply chain/build/install behavior,
-externally exposed endpoints, CI permissions, policy/rulesets, migrations, and
-production infrastructure. When in doubt, classify as sensitive.
-
-Merges, deploys, secrets/keys, paid plans, permission changes and branch-protection
-changes always require explicit owner approval. Standing or delegated authority
-does not replace approval of an individual merge. Never force-push or rewrite
-history without owner confirmation. Keep an audit trail of SHA, evidence, review,
-approval and merge result; plan containment and follow-up for post-merge failures.
+Secrets/keys, paid plans, permission changes and branch-protection changes
+require explicit owner approval. Deployments require explicit owner approval;
+production deploys always require Tier 3 approval. Never force-push or rewrite
+history without owner confirmation. Keep an audit trail of tier, SHA, evidence,
+review, notice/approval and merge result; plan containment and follow-up for
+post-merge failures.
 
 ## Factory Watchdog: implemented scope
 
@@ -103,20 +122,4 @@ hosted execution evidence remain necessary; this document installs no automation
 
 ## Known conflicts
 
-Line references below refer to the preserved files after adding the AGENTS.md pointer.
-Explicit owner approval for every merge and mandatory squash merge take precedence.
-
-- `AGENTS.md:25`: “Low-risk **routine** PRs may be merged under the repository
-  owner's standing authorization” conflicts with per-merge approval.
-- `docs/MERGE_POLICY.md:7`: “**Routine change (eligible for delegated merge):**”
-  conflicts with per-merge approval.
-- `docs/MERGE_POLICY.md:19` has a Codex-only review gate; this document requires
-  Codex review plus the independent reviewer bot (stricter, not contradictory).
-- `docs/MERGE_POLICY.md:25`: “Delegated auto-merge may occur **only for routine
-  changes** that satisfy every gate” conflicts with per-merge approval.
-- `docs/MERGE_POLICY.md:41`: “human approval is not required if all gates pass.”
-  conflicts with per-merge approval.
-- `docs/MERGE_POLICY.md:45`: “routine PRs may be merged without further per-PR
-  permission after the gates pass.” conflicts with per-merge approval.
-- `CONTRIBUTING.md:183`: “Squash commits if requested” makes squashing optional;
-  the factory requires squash merge.
+None.
