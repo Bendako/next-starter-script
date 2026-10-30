@@ -320,7 +320,7 @@ export default async function PricingPage() {
                 Do you offer refunds?
               </h3>
               <p className="text-gray-600">
-                We offer a 30-day money-back guarantee for all paid plans. If you're not satisfied, we'll refund your payment in full.
+                We offer a 14-day money-back guarantee. If you're not satisfied, email us within 14 days of purchase and we'll refund your payment in full.
               </p>
             </div>
             
