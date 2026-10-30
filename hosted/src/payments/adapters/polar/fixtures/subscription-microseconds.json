@@ -1,0 +1,18 @@
+{
+  "type": "subscription.updated",
+  "timestamp": "2026-03-01T00:00:00.000000Z",
+  "api_version": "2026-10",
+  "data": {
+    "id": "sub_fixture",
+    "status": "active",
+    "cancel_at_period_end": false,
+    "current_period_start": "2026-03-01T00:00:00.000000Z",
+    "current_period_end": "2026-04-01T00:00:00.000000Z",
+    "product_id": "prod_TBD",
+    "customer": {
+      "id": "cus_fixture",
+      "external_id": "user_1",
+      "email": "buyer@example.com"
+    }
+  }
+}
