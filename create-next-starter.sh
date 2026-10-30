@@ -275,8 +275,8 @@ REQUIREMENTS:
   • At least 1GB free disk space
 
 SUPPORT:
-  Documentation: https://github.com/your-repo/next-starter-script
-  Issues: https://github.com/your-repo/next-starter-script/issues
+  Documentation: https://github.com/Bendako/next-starter-script
+  Issues: https://github.com/Bendako/next-starter-script/issues
 
 EOF
 }

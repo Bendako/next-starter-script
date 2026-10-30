@@ -117,7 +117,7 @@ The server validates tool arguments and launches Bash with an argument array and
 
 Contributions, suggestions, and feedback are welcome. Repository review guidance is in [AGENTS.md](AGENTS.md).
 
-Repository URL placeholder: https://github.com/yourusername/next-starter
+Repository: https://github.com/Bendako/next-starter-script
 
 ## License 📄
 

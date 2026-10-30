@@ -6,8 +6,8 @@ Thank you for your interest in contributing to Next.js Starter MCP! This guide w
 
 1. **Fork and Clone**
    ```bash
-   git clone https://github.com/yourusername/next-starter.git
-   cd next-starter
+   git clone https://github.com/Bendako/next-starter-script.git
+   cd next-starter-script
    ```
 
 2. **Set Up Development Environment**
@@ -143,7 +143,7 @@ docs: improve MCP server setup guide
 
 ### **Feature Requests**
 
-Check our [Issues](https://github.com/yourusername/next-starter/issues) for:
+Check our [Issues](https://github.com/Bendako/next-starter-script/issues) for:
 - Feature requests labeled `enhancement`
 - Bug reports labeled `bug`
 - Help wanted items labeled `help wanted`
@@ -235,4 +235,4 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ---
 
-**Ready to contribute?** Check out our [Good First Issues](https://github.com/yourusername/next-starter/labels/good%20first%20issue) to get started! 🚀 
+**Ready to contribute?** Check out our [Good First Issues](https://github.com/Bendako/next-starter-script/labels/good%20first%20issue) to get started! 🚀 
