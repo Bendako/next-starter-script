@@ -1965,7 +1965,7 @@ $status_banner_section
           <p className="text-lg text-gray-600 dark:text-gray-300 mb-8">
             $description
           </p>
-          <div className="flex min-w-0 flex-col sm:flex-row sm:flex-wrap gap-4 justify-center lg:justify-start [&_button]:h-auto [&_button]:min-w-0 [&_button]:max-w-full [&_button]:whitespace-normal">
+          <div className="flex min-w-0 flex-col sm:flex-row sm:flex-wrap gap-4 justify-center lg:justify-start [&_button]:min-h-11 [&_button]:min-w-0 [&_button]:max-w-full [&_button]:whitespace-normal">
 $action_buttons
           </div>
         </div>
