@@ -229,12 +229,14 @@ DESCRIPTION:
 
 INTERACTIVE MODE:
   Simply provide the app name and choose from 4 clear configuration options:
-  1) Default - Next.js + TypeScript + Tailwind (clean start)
-  2) With Auth - Adds Clerk authentication to the default setup
-  3) With Database - Adds Convex real-time database to the default setup
-  4) Full - Includes both Clerk auth and Convex database (full stack)
+  1) Default - Next.js + TypeScript + Tailwind + shared UI utilities; skips Clerk/Convex
+  2) With Auth - Base setup + optional Clerk plumbing; skips Convex
+  3) With Database - Base setup + optional Convex plumbing; skips Clerk
+  4) Full - Base setup + optional Clerk and Convex plumbing (uses template default)
   
-  Select options by entering the corresponding number (1-4)
+  Menu option 1 uses --template default --skip-clerk --skip-convex.
+  --template default alone maps to menu option 4 (both services included).
+  The current interactive flow automatically selects option 1.
 
 REQUIRED:
   <app-name>           Lowercase letter or number, then lowercase letters, numbers, and hyphens. 1 to 214 characters. Put the name after -- so it is not read as an option.
@@ -252,9 +254,15 @@ COMMAND-LINE OPTIONS:
   --version, -v        Show script version
 
 TEMPLATES:
-  default              Standard setup with Next.js, TypeScript, and Tailwind
-  minimal              Basic Next.js with TypeScript and Tailwind only
-  full                 Everything + additional tools and components
+  default              Next.js, TypeScript, Tailwind, shared UI utilities/components,
+                       and optional Clerk + Convex plumbing unless skipped
+  minimal              Same installed dependencies/components as default;
+                       currently no additional template customizations
+  full                 Same as default + Loading and ErrorBoundary components
+
+  All templates install Radix icons, lucide-react, class-variance-authority,
+  clsx and tailwind-merge. --skip-clerk/--skip-convex apply to every template.
+  Included services degrade gracefully without keys; configure keys to use them.
 
 EXAMPLES:
   # Interactive mode (guided setup with numbered selection):
@@ -264,7 +272,7 @@ EXAMPLES:
   $0 --skip-convex my-app              # Default without database
   $0 --skip-clerk my-app               # Default without authentication
   $0 --skip-convex --skip-clerk my-app # Clean default setup
-  $0 my-app                            # Full stack (with auth and database)
+  $0 --template default my-app         # Menu option 4: Clerk + Convex plumbing
   $0 --verbose my-app                  # With detailed output
   $0 --dry-run my-app                  # Preview what would be created
 
@@ -337,10 +345,10 @@ show_interactive_menu() {
   
   # Configuration options
   local config_options=(
-    "Default - Next.js + TypeScript + Tailwind (no auth, no database)"
-    "With Auth - Includes Clerk authentication + all default features"
-    "With Database - Includes Convex database + all default features"
-    "Full - Includes both Clerk auth and Convex database + all features"
+    "Default - Next.js + TypeScript + Tailwind + shared UI utilities (skips Clerk/Convex)"
+    "With Auth - Base setup + optional Clerk plumbing (skips Convex)"
+    "With Database - Base setup + optional Convex plumbing (skips Clerk)"
+    "Full - Base setup + optional Clerk/Convex plumbing (template default; works without keys)"
   )
   
   # Main configuration choice with arrow key navigation
@@ -949,13 +957,13 @@ show_dry_run_summary() {
     
     case $TEMPLATE in
       minimal)
-        print_status "$CYAN" "  📋 Minimal template (basic features only)"
+        print_status "$CYAN" "  📋 Minimal template (same dependencies/components as default)"
         ;;
       full)
-        print_status "$CYAN" "  📋 Full template (all features + extras)"
+        print_status "$CYAN" "  📋 Full template (base setup + Loading and ErrorBoundary components)"
         ;;
       *)
-        print_status "$CYAN" "  📋 Default template (standard features)"
+        print_status "$CYAN" "  📋 Default template (base setup; services controlled by skip flags)"
         ;;
     esac
     
@@ -1946,30 +1954,30 @@ export default function Home() {
 $config_usage
   
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24">
+    <main className="flex min-h-screen min-w-0 flex-col items-center justify-center p-6 sm:p-12 lg:p-24 [overflow-wrap:anywhere]">
 $status_banner_section
       
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <div className="text-center lg:text-left">
+      <div className="z-10 min-w-0 max-w-5xl w-full items-center justify-between gap-8 font-mono text-sm lg:flex">
+        <div className="min-w-0 flex-1 text-center lg:text-left">
           <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
             Welcome to $APP_NAME
           </h1>
           <p className="text-lg text-gray-600 dark:text-gray-300 mb-8">
             $description
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+          <div className="flex min-w-0 flex-col sm:flex-row sm:flex-wrap gap-4 justify-center lg:justify-start [&_button]:min-h-11 [&_button]:min-w-0 [&_button]:max-w-full [&_button]:whitespace-normal">
 $action_buttons
           </div>
         </div>
         
-        <div className="mt-8 lg:mt-0">
-          <div className="grid grid-cols-2 gap-4 text-center">
+        <div className="mt-8 min-w-0 w-full lg:mt-0 lg:w-auto lg:flex-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-center">
 $feature_grid
           </div>
         </div>
       </div>
       
-      <div className="mt-16 text-center">
+      <div className="mt-16 min-w-0 w-full max-w-2xl text-center">
         <h2 className="text-2xl font-semibold mb-4">Ready to build with $APP_NAME?</h2>
         <p className="text-gray-600 dark:text-gray-300 max-w-2xl">
           $final_description
@@ -2233,9 +2241,9 @@ apply_template_customizations() {
   case $TEMPLATE in
     minimal)
       print_status "$BLUE" "📋 Applying minimal template customizations..."
-      # Skip some components for minimal template
+      # Minimal currently shares the default dependencies and components
       if [ "$VERBOSE" = true ]; then
-        print_status "$CYAN" "   Minimal template: Skipping advanced components"
+        print_status "$CYAN" "   Minimal template: Same dependencies/components as default"
       fi
       ;;
     full)
