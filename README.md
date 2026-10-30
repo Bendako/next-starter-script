@@ -105,7 +105,7 @@ The server validates tool arguments and launches Bash with an argument array and
 
 ## Troubleshooting
 
-- **`npm ci` in `mcp-server/` fails with `Missing: @esbuild/... from lock file`:** `package-lock.json` lacks platform entries that npm 11 requires (npm 10 accepts it). Use `npm install` instead.
+- **`npm ci` in `mcp-server/` fails with `Missing: @esbuild/... from lock file`:** older checkouts had a `package-lock.json` without the esbuild platform entries that npm 11 requires (npm 10 accepted it). The lockfile now includes them, so `npm ci` works on npm 10 and 11; update your checkout if you still see this.
 - **`EBADENGINE` warning on Node 20:** `validate-npm-package-name@8` declares Node `^22.22.2 || ^24.15.0 || >=26`. Tests still pass on Node 20; Node.js 22+ is recommended for `mcp-server/`, with a version satisfying that engine range.
 - **Node or package errors:** check `node --version`, `npm --version`, and the requirements of the downloaded Next.js tooling. Inspect terminal output and `setup.log` where available; some dependency-install failures allow the script to continue.
 - **Registry connection fails:** check your npm registry, proxy, and network configuration. The direct script resolves the configured npm registry; the MCP child process sets its registry to `https://registry.npmjs.org/`.

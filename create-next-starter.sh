@@ -81,6 +81,7 @@ DRY_RUN=false
 FORCE=false
 TEMPLATE="default"
 NODE_VERSION_MIN="20.9"
+NODE_VERSION_MIN_CUSTOM=false
 SCRIPT_VERSION="2.5"
 
 # Global variables for cleanup
@@ -248,7 +249,7 @@ COMMAND-LINE OPTIONS:
   --dry-run            Show what would be done without executing
   --force              Overwrite existing directory if it exists
   --template TYPE      Use specific template (default, minimal, full)
-  --node-version MIN   Minimum Node.js version required (default: 20.9)
+  --node-version MIN   Minimum Node.js version required, as X, X.Y or X.Y.Z (default: 20.9)
   --test               Run script self-test and exit
   --help, -h           Show this help message
   --version, -v        Show script version
@@ -593,11 +594,12 @@ parse_arguments() {
         ;;
       --node-version)
         if [ -n "${2:-}" ]; then
-          if [[ ! "$2" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-            log_error "Invalid --node-version: '$2'. Expected a major or major.minor version (e.g. 20 or 20.9)."
+          if [[ ! "$2" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            log_error "Invalid --node-version: '$2'. Expected a version like 20, 20.9 or 20.9.0."
             exit 1
           fi
           NODE_VERSION_MIN="$2"
+          NODE_VERSION_MIN_CUSTOM=true
           log_info "Option: Minimum Node.js version set to $NODE_VERSION_MIN"
           shift 2
         else
@@ -864,14 +866,24 @@ check_prerequisites() {
   else
     # Check Node version
     local node_version=$(node --version | cut -d 'v' -f 2)
-    local major_version minor_version min_major min_minor
-    IFS=. read -r major_version minor_version _ <<< "$node_version"
-    IFS=. read -r min_major min_minor <<< "$NODE_VERSION_MIN"
+    local major_version minor_version patch_version min_major min_minor min_patch
+    IFS=. read -r major_version minor_version patch_version <<< "$node_version"
+    IFS=. read -r min_major min_minor min_patch <<< "$NODE_VERSION_MIN"
+    # Ignore any pre-release suffix such as 20.9.0-rc.1 and default missing parts to 0.
+    patch_version=${patch_version%%[!0-9]*}
+    minor_version=${minor_version:-0}
+    patch_version=${patch_version:-0}
     min_minor=${min_minor:-0}
+    min_patch=${min_patch:-0}
 
     if (( 10#$major_version < 10#$min_major ||
-          (10#$major_version == 10#$min_major && 10#$minor_version < 10#$min_minor) )); then
-      missing+=("Node.js ${NODE_VERSION_MIN}+ required by create-next-app 16 / Next 16 (current: v$node_version)")
+          (10#$major_version == 10#$min_major && 10#$minor_version < 10#$min_minor) ||
+          (10#$major_version == 10#$min_major && 10#$minor_version == 10#$min_minor && 10#$patch_version < 10#$min_patch) )); then
+      if [ "$NODE_VERSION_MIN_CUSTOM" = true ]; then
+        missing+=("Node.js ${NODE_VERSION_MIN}+ required (set with --node-version; current: v$node_version)")
+      else
+        missing+=("Node.js ${NODE_VERSION_MIN}+ required by create-next-app 16 / Next 16 (current: v$node_version)")
+      fi
     else
       log_info "Node.js version: v$node_version ✓"
       if [ "$VERBOSE" = true ]; then

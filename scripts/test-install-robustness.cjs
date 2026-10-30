@@ -42,24 +42,36 @@ if [ "\${1:-}" = --version ]; then echo v18.20.4; else exec '${process.execPath}
     assert.equal(fs.existsSync(path.join(dir, 'regression-app')), false);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+const DEFAULT_MESSAGE = /Node\.js 20\.9\+ required by create-next-app 16 \/ Next 16 \(current: v/;
+// [node version, --node-version value or '' for the default, expected exit status]
 for (const [version, minimum, expected] of [
-  ['18.20.4', '20.9', 1], ['20.8.1', '20.9', 1],
-  ['20.9.0', '20.9', 0], ['22.0.0', '20.9', 0],
-  ['18.20.4', '18', 0], ['20.8.1', '20', 0],
+  ['18.20.4', '', 1], ['20.8.1', '', 1], ['20.8.99', '', 1],
+  ['20.9.0', '', 0], ['20.9.1', '', 0], ['22.0.0', '', 0], ['24.1.0', '', 0],
+  ['18.20.4', '18', 0], ['20.8.1', '20', 0], ['19.9.0', '20', 1],
+  ['20.9.0', '20.9', 0], ['20.8.1', '20.9', 1],
+  ['20.9.0', '20.9.0', 0], ['20.9.0', '20.9.1', 1], ['20.9.2', '20.9.1', 0],
+  ['20.10.0', '20.9.5', 0], ['20.8.9', '20.9.0', 1], ['18.20.4', '20.9.0', 1],
+  ['20.9.0-rc.1', '20.9.0', 0],
 ]) {
-  test(`Node ${version}, minimum ${minimum}: exit ${expected}`, () => {
-    const result = run(`parse_arguments --node-version ${minimum} -- regression-app
+  test(`Node ${version}, minimum ${minimum || '(default)'}: exit ${expected}`, () => {
+    const flag = minimum ? `--node-version ${minimum} ` : '';
+    const result = run(`parse_arguments ${flag}-- regression-app
 npm_registry_reachable() { return 0; }
 check_prerequisites`, {}, version);
     assert.equal(result.status, expected, result.stdout + result.stderr);
-    if (expected) assert.match(result.stdout, /Node.js 20.9\+ required by create-next-app 16 \/ Next 16 \(current: v/);
+    if (expected && !minimum) assert.match(result.stdout, DEFAULT_MESSAGE);
+    if (expected && minimum) {
+      // A user-chosen minimum must not claim create-next-app 16 requires it.
+      assert.match(result.stdout, new RegExp(`Node\\.js ${minimum.replace(/\./g, '\\.')}\\+ required \\(set with --node-version; current: v`));
+      assert.doesNotMatch(result.stdout, /create-next-app/);
+    }
   });
 }
-for (const minimum of ['oops', '20.9.0', '20.', '-1', '20x9']) {
-  test(`malformed minimum ${minimum} is rejected clearly`, () => {
+for (const minimum of ['oops', '20.', '-1', '20x9', '20.9.0.1', '20..9', '']) {
+  test(`malformed minimum '${minimum}' is rejected clearly`, () => {
     const result = run(`parse_arguments --node-version '${minimum}' -- regression-app`);
     assert.equal(result.status, 1);
-    assert.match(result.stdout + result.stderr, /Invalid --node-version/);
+    assert.match(result.stdout + result.stderr, /Invalid --node-version|requires a value/);
   });
 }
 
