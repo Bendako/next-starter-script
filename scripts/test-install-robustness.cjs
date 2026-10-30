@@ -62,7 +62,8 @@ check_prerequisites`, {}, version);
     if (expected && !minimum) assert.match(result.stdout, DEFAULT_MESSAGE);
     if (expected && minimum) {
       // A user-chosen minimum must not claim create-next-app 16 requires it.
-      assert.match(result.stdout, new RegExp(`Node\\.js ${minimum.replace(/\./g, '\\.')}\\+ required \\(set with --node-version; current: v`));
+      const expectedMessage = `Node.js ${minimum}+ required (set with --node-version; current: v`;
+      assert.ok(result.stdout.includes(expectedMessage), result.stdout);
       assert.doesNotMatch(result.stdout, /create-next-app/);
     }
   });
