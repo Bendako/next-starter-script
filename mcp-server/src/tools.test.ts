@@ -276,6 +276,84 @@ describe('hosted mode', () => {
 });
 
 describe('local mode', () => {
+  for (const desktop of ['directory', 'missing', 'file', 'missing-home'] as const) {
+    test(`default directory with ${desktop} uses Desktop only when it is a directory`, async (t) => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-default-'));
+      const home = desktop === 'missing-home' ? path.join(root, 'nested', 'home') : root;
+      t.mock.method(os, 'homedir', () => home);
+      try {
+        if (desktop === 'directory') await fs.mkdir(path.join(home, 'Desktop'));
+        if (desktop === 'file') await fs.writeFile(path.join(home, 'Desktop'), 'not a directory');
+        const runner = recordingRunner();
+        const result = await dispatchTool({
+          name: 'create_nextjs_app', args: { name: 'my-app' },
+          config: localConfig, run: runner.run,
+        });
+        assert.equal(result.isError, undefined);
+        const expected = desktop === 'directory' ? path.join(home, 'Desktop') : home;
+        assert.equal(runner.calls[0].cwd, expected);
+        assert.equal((await fs.stat(expected)).isDirectory(), true);
+        if (desktop === 'missing') await assert.rejects(fs.stat(path.join(home, 'Desktop')));
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  for (const failure of ['unknown-home', 'home-error', 'mkdir', 'access'] as const) {
+    test(`default directory ${failure} failure asks for directory without running the script`, async (t) => {
+      t.mock.method(os, 'homedir', () => {
+        if (failure === 'home-error') throw new Error('home unavailable');
+        return failure === 'unknown-home' ? '' : '/unavailable-home';
+      });
+      t.mock.method(fs, 'stat', async () => { throw new Error('missing Desktop'); });
+      t.mock.method(fs, 'mkdir', async () => {
+        if (failure === 'mkdir') throw new Error('permission denied');
+      });
+      t.mock.method(fs, 'access', async () => { throw new Error('not writable'); });
+      const result = await expectRejected('create_nextjs_app', { name: 'my-app' }, localConfig);
+      assert.match(result.content[0].text, /default directory/);
+      assert.match(result.content[0].text, /pass 'directory'/);
+    });
+  }
+
+  test('an explicit missing directory fails without running the script', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-explicit-'));
+    try {
+      const result = await expectRejected('create_nextjs_app', {
+        name: 'my-app', directory: path.join(root, 'missing'),
+      }, localConfig);
+      assert.match(result.content[0].text, /pass 'directory'/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('script_help removes absolute paths from stdout and stderr', async () => {
+    const result = await dispatchTool({
+      name: 'script_help', args: {}, config: localConfig,
+      run: async () => ({
+        stdout: 'Usage: /private/host folder/create-next-starter.sh --help\nDocs: https://example.com/docs (automation/scripts)',
+        stderr: 'Warning: /private/host/setup.log and C:\\host\\error.log',
+      }),
+    });
+    assert.equal(result.isError, undefined);
+    assert.match(result.content[0].text, /Usage: create-next-starter.sh --help/);
+    assert.match(result.content[0].text, /Warning: setup.log and error.log/);
+    assert.ok(result.content[0].text.includes('https://example.com/docs (automation/scripts)'));
+    assert.doesNotMatch(result.content[0].text, /private|host/);
+  });
+
+  test('script_help removes absolute paths from failures', async () => {
+    const result = await dispatchTool({
+      name: 'script_help', args: {}, config: localConfig,
+      run: async () => { throw new Error('Cannot run /private/host/create-next-starter.sh: /tmp/secret.log'); },
+    });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Cannot run create-next-starter.sh: secret.log/);
+    assert.doesNotMatch(result.content[0].text, /private|host|\/tmp/);
+  });
+
   test('tools/list still advertises directory and force', () => {
     const create = listTools(localConfig).find((tool) => tool.name === 'create_nextjs_app');
     assert.ok(create);
