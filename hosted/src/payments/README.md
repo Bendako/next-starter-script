@@ -27,7 +27,25 @@ Event ids are global across users. A durable store may drop an id after the prov
 
 `PaymentsProvider` requires `createCustomerPortalUrl`. The issue text listed that method as optional. Callers can call it on every adapter.
 
-Import `@polar-sh` only from `src/payments/adapters/polar/`. That ban includes `hosted/convex/`. The Polar adapter is a later change.
+Import `@polar-sh` only from `src/payments/adapters/polar/`. That ban includes `hosted/convex/`.
+
+## Polar
+
+The Polar adapter imports `@polar-sh/sdk/2026-10` and nothing else from that package's other versions.
+
+The store is the durable copy. An empty `active_subscriptions` list on `customer.state_changed` produces no update, because that payload has no plan id. `subscription.revoked` is the event that ends access.
+
+`getSubscriptionStatus` reads a process-local mirror of webhooks handled in this process. The mirror is unbounded, and a process that has not handled the webhook returns `none`. Read `EntitlementStore` for the durable status.
+
+`past_due` grants access until `past_due_at` plus `POLAR_PAST_DUE_GRACE_SECONDS`, and no later than `current_period_end`. Polar opens that period before the charge, so the period end alone is the unpaid period. When `past_due_at` is missing, the event timestamp is the past-due instant. Unset grace is `0`, so the subscription is expired.
+
+The values stay in the host environment.
+
+- `POLAR_ACCESS_TOKEN`
+- `POLAR_WEBHOOK_SECRET`
+- `POLAR_ENVIRONMENT`, either `sandbox` or `production`
+- `POLAR_PRODUCT_ID_TBD`, the product id for plan id `TBD`
+- `POLAR_PAST_DUE_GRACE_SECONDS`, optional non-negative integer. Unset means `0`
 
 ## Subscription states
 

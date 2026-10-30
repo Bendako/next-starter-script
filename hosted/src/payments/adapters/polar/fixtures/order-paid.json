@@ -1,0 +1,9 @@
+{
+  "type": "order.paid",
+  "timestamp": "2026-03-01T00:00:00.000Z",
+  "api_version": "2026-10",
+  "data": {
+    "id": "order_fixture",
+    "billing_reason": "subscription_create"
+  }
+}
