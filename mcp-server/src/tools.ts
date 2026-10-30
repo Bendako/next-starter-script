@@ -152,7 +152,7 @@ const verboseProperty = {
 const directoryProperty = {
   type: 'string',
   description:
-    'Directory to create the app in (default: ~/Desktop). Use absolute path like /Users/username/Desktop/projects',
+    'Directory to create the app in (default: ~/Desktop if it exists as a directory, otherwise your home directory). Use absolute path like /Users/username/Desktop/projects',
   maxLength: DIRECTORY_MAX,
 };
 
@@ -265,7 +265,7 @@ export async function dispatchTool(options: {
   config: ServerConfig;
   run: (call: ScriptCall) => Promise<{ stdout: string; stderr: string }>;
 }): Promise<ToolTextResult> {
-  const prepared = prepare(options.name, options.args, options.config);
+  const prepared = await prepare(options.name, options.args, options.config);
   if (!prepared.ok) {
     return textResult(prepared.message, true);
   }
@@ -295,7 +295,7 @@ export async function dispatchTool(options: {
   }
 }
 
-function prepare(tool: string, args: unknown, config: ServerConfig): Prepared {
+async function prepare(tool: string, args: unknown, config: ServerConfig): Promise<Prepared> {
   const raw = args === undefined ? {} : args;
 
   switch (tool) {
@@ -312,7 +312,7 @@ function prepare(tool: string, args: unknown, config: ServerConfig): Prepared {
   }
 }
 
-function prepareCreate(raw: unknown, config: ServerConfig): Prepared {
+async function prepareCreate(raw: unknown, config: ServerConfig): Promise<Prepared> {
   if (config.mode === 'hosted') {
     const parsed = hostedCreateSchema.safeParse(raw);
     if (!parsed.success) {
@@ -356,7 +356,15 @@ function prepareCreate(raw: unknown, config: ServerConfig): Prepared {
     template: parsed.data.template,
     verbose: parsed.data.verbose,
   };
-  const cwd = localWorkingDirectory(input.directory);
+  let cwd: string;
+  try {
+    cwd = await localWorkingDirectory(input.directory);
+  } catch {
+    return {
+      ok: false,
+      message: "Cannot determine or create a writable default directory. Please pass 'directory' explicitly.",
+    };
+  }
   return {
     ok: true,
     tool: 'create_nextjs_app',
@@ -413,10 +421,22 @@ function createArgs(input: CreateAppInput): string[] {
   return args;
 }
 
-function localWorkingDirectory(directory: string | undefined): string {
+async function localWorkingDirectory(directory: string | undefined): Promise<string> {
   if (directory) return directory;
-  if (process.env.HOME) return path.join(process.env.HOME, 'Desktop');
-  return process.cwd();
+  const home = os.homedir();
+  if (!home || !path.isAbsolute(home)) {
+    throw new Error('No home directory available');
+  }
+  const desktop = path.join(home, 'Desktop');
+  let chosen = home;
+  try {
+    if ((await fs.stat(desktop)).isDirectory()) chosen = desktop;
+  } catch {
+    // A missing or inaccessible Desktop is not a usable default.
+  }
+  await fs.mkdir(chosen, { recursive: true });
+  await fs.access(chosen, fsConstants.W_OK);
+  return chosen;
 }
 
 function containedDirectory(outputRoot: string, name: string): string | undefined {
@@ -455,7 +475,7 @@ async function ensureWritable(
 }
 
 function cannotWrite(directory: string, error: unknown): string {
-  return `❌ Cannot write to directory: ${directory}\n\nError: ${String(error)}\n\nPlease specify a different directory or check permissions.`;
+  return `❌ Cannot write to directory: ${directory}\n\nError: ${String(error)}\n\nPlease pass 'directory' explicitly with a writable path or check permissions.`;
 }
 
 function invalidInput(tool: string, error: z.ZodError): string {
@@ -492,12 +512,32 @@ function renderSuccess(
     case 'test_script':
       return `🧪 Script Test Results:\n\n${output.stdout}${stderr}`;
     case 'script_help':
-      return `📖 Next.js Starter Script Help:\n\n${output.stdout}${stderr}`;
+      return `📖 Next.js Starter Script Help:\n\n${sanitizeHelp(output.stdout)}${sanitizeHelp(stderr)}`;
   }
+}
+
+// Help is public documentation: retain filenames, never host directory names.
+function sanitizeHelp(text: string): string {
+  return text
+    .replace(
+      /(?<![\w:/\\])(?:[A-Za-z]:[\\/]|\/)[^\n'"<>`]*?create-next-starter\.sh/g,
+      'create-next-starter.sh',
+    )
+    .replace(
+      /(['"])(?:[A-Za-z]:[\\/]|\/)([^'"\n]*)\1/g,
+      (_match, quote: string, rest: string) => `${quote}${rest.replace(/\\/g, '/').split('/').at(-1)}${quote}`,
+    )
+    .replace(
+      /(?<![\w:/\\])(?:[A-Za-z]:[\\/]|\/)[^\s'"<>`]+/g,
+      (absolutePath) => absolutePath.replace(/\\/g, '/').split('/').at(-1) || '[path]',
+    );
 }
 
 function renderFailure(prepared: Extract<Prepared, { ok: true }>, error: unknown): string {
   const details = errorDetails(error);
+  if (prepared.tool === 'script_help') {
+    return `❌ Failed to get help: ${sanitizeHelp(details.message)}`;
+  }
   if (prepared.tool !== 'create_nextjs_app') {
     return `❌ ${failureLabel(prepared.tool)}: ${details.message}`;
   }

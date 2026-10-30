@@ -56,7 +56,7 @@ We're excited to introduce **Next.js Starter MCP** - the first professional Next
 3. Create apps: "Build a SaaS dashboard with auth and database"
 
 ### **Direct Script**
-1. Download: `git clone https://github.com/yourusername/next-starter.git`
+1. Download: `git clone https://github.com/Bendako/next-starter-script.git`
 2. Make executable: `chmod +x create-next-starter.sh`
 3. Create app: `./create-next-starter.sh my-awesome-app`
 
@@ -71,7 +71,7 @@ We're excited to introduce **Next.js Starter MCP** - the first professional Next
 
 ## 🌟 **Community**
 
-- **GitHub Repository**: [next-starter](https://github.com/yourusername/next-starter)
+- **GitHub Repository**: [next-starter-script](https://github.com/Bendako/next-starter-script)
 - **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Issues**: Use our templates for bugs and features
 - **Discussions**: GitHub Discussions for community chat
@@ -106,4 +106,4 @@ MIT License - Use freely in your projects!
 
 **Ready to build amazing Next.js applications?** Whether you use Claude Desktop or the direct script, you'll have a professional foundation in minutes instead of hours! 
 
-[⭐ Star on GitHub](https://github.com/yourusername/next-starter) | [🚀 Get Started](#quick-start) | [🤝 Contribute](CONTRIBUTING.md) 
+[⭐ Star on GitHub](https://github.com/Bendako/next-starter-script) | [🚀 Get Started](#quick-start) | [🤝 Contribute](CONTRIBUTING.md) 

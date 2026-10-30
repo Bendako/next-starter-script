@@ -146,7 +146,7 @@ Create a new Next.js application with full customization options.
 
 **Parameters:**
 - `name` (required) - App name. A lowercase letter or number, then lowercase letters, numbers, and hyphens. 1 to 214 characters.
-- `directory` (optional) - Where to create the app
+- `directory` (optional) - Where to create the app. Defaults to `~/Desktop` if it already exists as a directory, otherwise your home directory (`os.homedir()`). The default directory is created if needed. If it cannot be determined or created, pass `directory` explicitly.
 - `skipConvex` (optional) - Skip Convex database setup
 - `skipClerk` (optional) - Skip Clerk authentication
 - `template` (optional) - Template type: `default`, `minimal`, `full`
