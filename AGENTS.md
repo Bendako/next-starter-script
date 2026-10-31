@@ -25,7 +25,8 @@ Payment webhooks must verify signatures, handle repeated/out-of-order events ide
   below, and [the merge policy](docs/MERGE_POLICY.md) for decision packets. Attach
   a decision packet to every PR; checks and reviews apply to the exact head SHA.
   Never bypass GitHub branch protection. PR #29 and PR #30 are Tier 3.
-- For sensitive PR approval, prepare the Hebrew-language decision packet with impact, benefits, unresolved findings, exact CI/Codex links, confidence, dependencies, rollout/rollback, alternatives and a clear merge/hold recommendation; see [#29/#30 assessment](docs/PR_29_30_MERGE_ASSESSMENT_2026-10-24.md).
+- For sensitive PR approval, prepare the decision packet (English when posted on GitHub) with impact, benefits, unresolved findings, exact CI/Codex links, confidence, dependencies, rollout/rollback, alternatives and a clear merge/hold recommendation; see [#29/#30 assessment](docs/PR_29_30_MERGE_ASSESSMENT_2026-10-24.md).
+- Write everything on GitHub (PR titles/descriptions, decision packets, comments, reviews, issues, commit messages) in English. Hebrew only for user-facing display content such as a README, where relevant. Chat with the owner, including the merge brief, stays in Hebrew.
 - GitHub automation is not installed by this document. An assistant's runtime permission and a passing CI job are not substitutes for required reviews.
 
 ## Three-tier merge policy

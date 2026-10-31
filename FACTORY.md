@@ -95,11 +95,17 @@ Inspect every open review thread. Unresolved P0/P1, security or correctness
 findings block merge; document disposition, risk and follow-up for other findings.
 Verify compatibility, deployment effects and rollback feasibility. Attach a
 decision packet to every PR before merge: purpose, risk, exact SHA, check/review
-links and recommendation. Sensitive changes require the detailed Hebrew-language
+links and recommendation. Sensitive changes require the detailed
 packet described in [the merge policy](docs/MERGE_POLICY.md), including benefits,
 unresolved findings, confidence, dependencies, rollout/rollback and alternatives.
 For stacked PRs, integrate the base first and revalidate the resulting head;
 history rewrites still require owner confirmation.
+
+GitHub language: everything written on GitHub (PR titles and descriptions,
+decision packets, comments, reviews, issues and commit messages) is in English.
+Hebrew is used only for user-facing display content, such as a README, where
+relevant. Conversation with the owner outside GitHub, including the merge brief
+delivered to the owner in chat, stays in Hebrew.
 
 Follow the security and verification guidance in [AGENTS.md](AGENTS.md): test
 success and denial paths for generator/MCP/transport changes, cross-user access

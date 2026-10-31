@@ -66,7 +66,7 @@ because CI is green.
 
 ## 3. Mandatory decision packet for owner approval
 
-For every **Tier 3 PR**, before asking the owner to approve a merge, provide a concise Hebrew-language decision brief with:
+For every **Tier 3 PR**, before asking the owner to approve a merge, provide a concise decision brief (English when posted on GitHub, Hebrew when delivered to the owner in chat) with:
 
 - PR number, name, link, current head SHA, branch/base, Draft/mergeability, and change size (files, lines) where available.
 - Plain-language purpose: problem being solved, before/after behavior, affected users and components, benefits, and consequences of **not** merging.
@@ -80,6 +80,11 @@ For every **Tier 3 PR**, before asking the owner to approve a merge, provide a c
 
 For Tier 1 and 2 PRs, include a shorter packet with purpose, tier, check/review
 links, exact SHA, recommended decision and notice timing where applicable.
+
+All decision packets, PR text, comments, reviews, issues and commit messages on
+GitHub are written in English. Hebrew is used only for user-facing display
+content, such as a README, where relevant. Chat with the owner, including the
+merge brief, stays in Hebrew.
 
 ## 4. Decision ownership and enforcement
 
