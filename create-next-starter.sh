@@ -1315,7 +1315,31 @@ EOF
 # Function to create Convex provider component
 create_convex_provider() {
   print_status "$BLUE" "⚡ Creating Convex provider component..."
-  
+
+  if [ "$SKIP_CLERK" = false ]; then
+    cat > src/app/ConvexClientProvider.tsx << 'EOF'
+"use client";
+
+import { ReactNode } from "react";
+import { useAuth } from "@clerk/nextjs";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const convex = convexUrl ? new ConvexReactClient(convexUrl) : null;
+
+export default function ConvexClientProvider({ children, clerkConfigured }: {
+  children: ReactNode;
+  clerkConfigured: boolean;
+}) {
+  if (!convex) return <>{children}</>;
+  // The layout only mounts ClerkProvider when both keys are present.
+  // Without it, public Convex reads still work; protected functions reject callers.
+  if (!clerkConfigured) return <ConvexProvider client={convex}>{children}</ConvexProvider>;
+  return <ConvexProviderWithClerk client={convex} useAuth={useAuth}>{children}</ConvexProviderWithClerk>;
+}
+EOF
+  else
   cat > src/app/ConvexClientProvider.tsx << 'EOF'
 "use client";
 
@@ -1339,6 +1363,7 @@ export default function ConvexClientProvider({
   return <ConvexProvider client={convex}>{children}</ConvexProvider>;
 }
 EOF
+  fi
 
   print_status "$GREEN" "  ✅ Convex provider component created"
 }
@@ -1769,8 +1794,13 @@ import ConvexClientProvider from './ConvexClientProvider'"
       <body className={inter.className}>"
   
   if [ "$SKIP_CONVEX" = false ]; then
-    layout_content="$layout_content
+    if [ "$SKIP_CLERK" = false ]; then
+      layout_content="$layout_content
+        <ConvexClientProvider clerkConfigured={clerk.configured}>"
+    else
+      layout_content="$layout_content
         <ConvexClientProvider>"
+    fi
   fi
   
   layout_content="$layout_content
@@ -2399,7 +2429,23 @@ EOF
 ## Convex typecheck
 
 next build excludes convex/ until Convex codegen exists. npm run setup:convex runs codegen and removes that exclude after convex/_generated exists. If tsconfig.json has comments, that rewrite removes them and prints "comments in tsconfig.json were removed". If you run npx convex dev yourself, run node scripts/remove-convex-tsconfig-exclude.mjs afterward.
+
+## Convex permissions
+
+Profile writes and post creation require a verified Convex identity. The clerkId and authorId arguments must match that identity's profile; they never grant access by themselves. Full profiles are private to their owner. User lists and nested post authors expose only _id, name and imageUrl. Published posts are public; drafts are visible only to their author.
+
+Skipping Clerk, missing keys, or ALLOW_NO_AUTH=true does not disable Convex authorization. Without a configured identity provider, only public reads work. Configure a supported provider before using private operations; do not remove the backend checks.
 EOF
+    if [ "$SKIP_CLERK" = false ]; then
+      cat >> README.md << 'EOF'
+
+## Connect Clerk identity to Convex
+
+Enable the Convex integration/JWT template named `convex` in Clerk. Set `CLERK_JWT_ISSUER_DOMAIN` to your Clerk issuer URL in the **Convex deployment environment**, then run `npm run setup:convex` (or deploy the backend). This is separate from the Next.js Clerk keys. The generated auth.config.ts accepts Clerk tokens for applicationID `convex` only when that issuer is configured; otherwise it has no authentication providers. The client forwards Clerk tokens only when the layout has configured Clerk keys.
+
+See https://docs.convex.dev/auth/clerk for development and production setup. Keep secrets out of source control.
+EOF
+    fi
   fi
 }
 
@@ -2491,11 +2537,36 @@ EOF
 # Function to create sample Convex functions
 create_convex_functions() {
   print_status "$BLUE" "🔧 Creating sample Convex functions..."
+
+  cat > convex/auth.ts << 'EOF'
+import type { QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+
+export async function requireIdentity(ctx: QueryCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Authentication required");
+  return identity;
+}
+
+export async function currentUser(ctx: QueryCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
+  return await ctx.db.query("users")
+    .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+    .unique();
+}
+
+export function publicUser(user: Doc<"users"> | null) {
+  if (!user) return null;
+  return { _id: user._id, name: user.name, ...(user.imageUrl ? { imageUrl: user.imageUrl } : {}) };
+}
+EOF
   
   # Create users functions
   cat > convex/users.ts << 'EOF'
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { publicUser, requireIdentity } from "./auth";
 
 // Create or update user profile
 export const createUser = mutation({
@@ -2506,9 +2577,11 @@ export const createUser = mutation({
     imageUrl: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    if (args.clerkId !== identity.subject) throw new Error("Not authorized");
     const existingUser = await ctx.db
       .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
       .unique();
 
     if (existingUser) {
@@ -2523,7 +2596,7 @@ export const createUser = mutation({
     } else {
       // Create new user
       return await ctx.db.insert("users", {
-        clerkId: args.clerkId,
+        clerkId: identity.subject,
         name: args.name,
         email: args.email,
         imageUrl: args.imageUrl,
@@ -2538,6 +2611,8 @@ export const createUser = mutation({
 export const getUserByClerkId = query({
   args: { clerkId: v.string() },
   handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    if (args.clerkId !== identity.subject) return null;
     return await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
@@ -2545,10 +2620,11 @@ export const getUserByClerkId = query({
   },
 });
 
-// Get all users
+// Public directory: never expose email or authentication identifiers.
 export const getUsers = query({
   handler: async (ctx) => {
-    return await ctx.db.query("users").collect();
+    const users = await ctx.db.query("users").collect();
+    return users.map(publicUser);
   },
 });
 EOF
@@ -2557,6 +2633,7 @@ EOF
   cat > convex/posts.ts << 'EOF'
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { currentUser, publicUser, requireIdentity } from "./auth";
 
 // Create a new post
 export const createPost = mutation({
@@ -2569,11 +2646,14 @@ export const createPost = mutation({
     tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+    const author = await currentUser(ctx);
+    if (!author || args.authorId !== author._id) throw new Error("Not authorized");
     return await ctx.db.insert("posts", {
       title: args.title,
       content: args.content,
       excerpt: args.excerpt,
-      authorId: args.authorId,
+      authorId: author._id,
       published: args.published ?? false,
       tags: args.tags,
       createdAt: Date.now(),
@@ -2597,11 +2677,13 @@ export const getPublishedPosts = query({
 export const getPostsByAuthor = query({
   args: { authorId: v.id("users") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const viewer = await currentUser(ctx);
+    const posts = await ctx.db
       .query("posts")
       .withIndex("by_author", (q) => q.eq("authorId", args.authorId))
       .order("desc")
       .collect();
+    return posts.filter((post) => post.published || viewer?._id === post.authorId);
   },
 });
 
@@ -2611,11 +2693,15 @@ export const getPostWithAuthor = query({
   handler: async (ctx, args) => {
     const post = await ctx.db.get(args.postId);
     if (!post) return null;
+    if (!post.published) {
+      const viewer = await currentUser(ctx);
+      if (!viewer || viewer._id !== post.authorId) return null;
+    }
 
     const author = await ctx.db.get(post.authorId);
     return {
       ...post,
-      author,
+      author: publicUser(author),
     };
   },
 });
@@ -2643,6 +2729,17 @@ EOF
 # Function to create Convex configuration
 create_convex_config() {
   print_status "$BLUE" "⚙️  Creating Convex configuration..."
+
+  if [ "$SKIP_CLERK" = false ]; then
+    cat > convex/auth.config.ts << 'EOF'
+import type { AuthConfig } from "convex/server";
+
+const issuer = process.env.CLERK_JWT_ISSUER_DOMAIN;
+export default {
+  providers: issuer ? [{ domain: issuer, applicationID: "convex" }] : [],
+} satisfies AuthConfig;
+EOF
+  fi
   
   # Create convex.json if it doesn't exist
   if [ ! -f "convex.json" ]; then
@@ -3389,4 +3486,4 @@ if [ "$VERBOSE" = true ]; then
   echo ""
   echo "🎯 Script execution completed at: $(date '+%Y-%m-%d %H:%M:%S')"
   echo "📊 Check setup.log for detailed execution log (if available)"
-fi 
+fi

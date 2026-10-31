@@ -454,7 +454,8 @@ async function runCase(spec: ProtocolCase): Promise<void> {
   await fs.mkdir(outside);
   await fs.writeFile(path.join(outside, 'marker'), 'keep');
 
-  const env: Record<string, string> = { TMPDIR: root, TMP: root };
+  // Preserve the same credential-free proxy/CA configuration as app checks.
+  const env: Record<string, string> = { ...qaProcessEnv(), TMPDIR: root, TMP: root };
   if (spec.hosted) env[HOSTED_ENV_FLAG] = 'true';
   if (spec.scriptTimeoutMs !== undefined) {
     env.NEXT_STARTER_MCP_SCRIPT_TIMEOUT_MS = String(spec.scriptTimeoutMs);
@@ -595,7 +596,7 @@ function qaProcessEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { CI: 'true', NEXT_TELEMETRY_DISABLED: '1' };
   for (const key of [
     'PATH', 'HOME', 'TMPDIR', 'TMP', 'npm_config_cache', 'HTTP_PROXY',
-    'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
+    'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'NODE_EXTRA_CA_CERTS',
   ]) {
     if (process.env[key] !== undefined) env[key] = process.env[key];
   }
