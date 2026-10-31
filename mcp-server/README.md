@@ -15,7 +15,7 @@ An MCP (Model Context Protocol) server that provides Next.js project creation to
 ## Installation 📦
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 20.9+
 - The `create-next-starter.sh` script (in parent directory)
 
 ### Install Dependencies
@@ -146,7 +146,7 @@ Create a new Next.js application with full customization options.
 
 **Parameters:**
 - `name` (required) - App name. A lowercase letter or number, then lowercase letters, numbers, and hyphens. 1 to 214 characters.
-- `directory` (optional) - Where to create the app
+- `directory` (optional) - Where to create the app. Defaults to `~/Desktop` if it already exists as a directory, otherwise your home directory (`os.homedir()`). The default directory is created if needed. If it cannot be determined or created, pass `directory` explicitly.
 - `skipConvex` (optional) - Skip Convex database setup
 - `skipClerk` (optional) - Skip Clerk authentication
 - `template` (optional) - Template type: `default`, `minimal`, `full`
@@ -174,7 +174,7 @@ Show detailed help for the script.
 5. The script creates the Next.js application.
 6. The tool result goes back to the client.
 
-The server always puts the app name after `--`. The script then reads that word as the name, including when the caller typed something that looks like an option. A shell command with only the app name still opens the script's interactive menu. That menu's first choice skips Clerk and Convex. An MCP create uses the tool arguments instead, so leave `skipConvex` and `skipClerk` false when those integrations should be installed.
+The server always puts the app name after `--`. The script then reads that word as the name, including when the caller typed something that looks like an option. A shell command with only the app name still opens the script's interactive menu. Without a stdin TTY, it prints a notice and uses option 1: no Clerk or Convex, standard output, execute. Pass explicit flags to choose another configuration. An MCP create uses the tool arguments instead, so leave `skipConvex` and `skipClerk` false when those integrations should be installed.
 
 ## Development 👨‍💻
 

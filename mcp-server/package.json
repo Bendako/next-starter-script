@@ -34,16 +34,16 @@
     "boilerplate",
     "ai-tools"
   ],
-  "author": "Your Name",
+  "author": "btd",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/next-starter.git",
+    "url": "https://github.com/Bendako/next-starter-script.git",
     "directory": "mcp-server"
   },
-  "homepage": "https://github.com/yourusername/next-starter#readme",
+  "homepage": "https://github.com/Bendako/next-starter-script#readme",
   "bugs": {
-    "url": "https://github.com/yourusername/next-starter/issues"
+    "url": "https://github.com/Bendako/next-starter-script/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -65,7 +65,7 @@
     "zod": "^4.6.6"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.9.0"
   },
   "files": [
     "dist/",

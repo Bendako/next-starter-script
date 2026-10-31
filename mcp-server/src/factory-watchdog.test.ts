@@ -5,12 +5,12 @@ const at = '2026-10-24T12:00:00Z';
 const evidence = { evidenceUrl: 'https://github.com/example/pilot/pull/1', at };
 function fixture(): Snapshot {
   return { fetchedAt: '2026-10-24T13:00:00Z',
-    issues: [{ url: 'issue:1', acknowledged: evidence, engineerResponse: evidence }],
+    issues: [{ url: 'issue:1', acknowledged: { ...evidence }, engineerResponse: { ...evidence } }],
     prs: [{ url: evidence.evidenceUrl, head: { sha: 'current', pushedAt: at }, draft: false,
       readyAt: at, mcpApplicable: true,
       checks: ['ci/mcp', 'qa/mcp'].map(name => ({ ...evidence, name, head_sha: 'current', result: 'success' })),
       reviews: ['reviewer', 'codex'].map(kind => ({ ...evidence, sha: 'current', kind: kind as 'reviewer' | 'codex', result: 'approved' })),
-    }], rulesetReadable: true, requiredChecks: ['ci/mcp', 'qa/mcp'], rulesetEvidence: evidence };
+    }], rulesetReadable: true, requiredChecks: ['ci/mcp', 'qa/mcp'], rulesetEvidence: { ...evidence } };
 }
 const status = (s: Snapshot, stage: string) => evaluate(s).find(r => r.stage === stage)?.status;
 test('green fixture has separate evidenced stages and is deterministic without mutation', () => {
@@ -118,7 +118,7 @@ test('invalid current-head check or review cannot hide behind valid green eviden
   }
 });
 
-test('commented reviews need a parsed verdict; blocking feedback persists until formal resolution', () => {
+test('commented reviews need parsed verdicts; independent re-reviews and Codex resolution differ', () => {
   for (const kind of ['reviewer', 'codex'] as const) {
     const s = fixture();
     const comment = { ...evidence, sha: 'current', kind, result: 'commented' as const };
@@ -131,7 +131,7 @@ test('commented reviews need a parsed verdict; blocking feedback persists until 
     for (const verdict of [undefined, 'approved'] as const) {
       s.prs[0].reviews = [{ ...comment, result: 'changes_requested' },
         { ...comment, at: '2026-10-24T12:10:00Z', verdict }];
-      assert.equal(status(s, kind), 'FAIL');
+      assert.equal(status(s, kind), verdict === undefined ? 'UNVERIFIED' : kind === 'reviewer' ? 'PASS' : 'FAIL');
     }
     for (const result of ['approved', 'dismissed'] as const) {
       s.prs[0].reviews = [{ ...comment, result: 'changes_requested' },
@@ -167,4 +167,50 @@ test('serialized stages contain only the declared report fields', () => {
   for (const stage of JSON.parse(JSON.stringify(evaluate(fixture())))) {
     assert.ok(Object.keys(stage).every(key => keys.includes(key)));
   }
+});
+
+ test('independent comment verdicts supersede on the same head in either direction', () => {
+  for (const reverse of [false, true]) {
+    for (const verdict of ['approved', 'changes_needed'] as const) {
+      const s = fixture();
+      const r = { ...evidence, sha: 'current', kind: 'reviewer' as const, result: 'commented' as const };
+      s.prs[0].reviews = [{ ...r, verdict: verdict === 'approved' ? 'changes_needed' : 'approved' },
+        { ...r, verdict, at: '2026-10-24T12:20:00Z' }];
+      if (reverse) s.prs[0].reviews.reverse();
+      assert.equal(status(s, 'reviewer'), verdict === 'approved' ? 'PASS' : 'FAIL');
+      s.prs[0].reviews.find(r => r.at.endsWith('20:00Z'))!.sha = 'old';
+      assert.equal(status(s, 'reviewer'), verdict === 'approved' ? 'FAIL' : 'PASS');
+    }
+  }
+});
+test('unknown runtime verdict is unverified even on formal approval', () => {
+  for (const result of ['approved', 'commented'] as const) {
+    const s = fixture();
+    Object.assign(s.prs[0].reviews![0], { result, verdict: 'unrecognized' });
+    assert.equal(status(s, 'reviewer'), 'UNVERIFIED');
+  }
+});
+test('missing evidence URL is no evidence across every stage', () => {
+  const s = fixture();
+  delete s.issues[0].acknowledged!.evidenceUrl;
+  delete s.prs[0].checks![0].evidenceUrl;
+  delete s.prs[0].reviews![0].evidenceUrl;
+  delete s.rulesetEvidence!.evidenceUrl;
+  for (const name of ['acknowledgment', 'ci/mcp', 'reviewer', 'merge-gate']) {
+    assert.equal(status(s, name), 'UNVERIFIED');
+  }
+});
+
+test('independent parsed verdict takes precedence over a conflicting formal result', () => {
+  for (const [result, verdict, expected] of [['approved', 'changes_needed', 'FAIL'], ['changes_requested', 'approved', 'PASS']] as const) {
+    const s = fixture();
+    Object.assign(s.prs[0].reviews![0], { result, verdict });
+    assert.equal(status(s, 'reviewer'), expected);
+  }
+});
+test('known current checks are evaluated without fabricating missing push time', () => {
+  const s = fixture(); s.prs[0].head.pushedAt = '';
+  assert.equal(status(s, 'ci/mcp'), 'PASS');
+  s.prs[0].checks = [];
+  assert.equal(status(s, 'ci/mcp'), 'UNVERIFIED');
 });
